@@ -1,33 +1,28 @@
 package com.zalo.exception;
 
 
+
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.ConstraintViolationException;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
-import org.springframework.web.context.request.ServletWebRequest;
 
 import java.nio.file.AccessDeniedException;
-import java.time.Instant;
 import java.util.Date;
 
 import static org.springframework.http.HttpStatus.*;
 import static org.springframework.http.MediaType.APPLICATION_JSON_VALUE;
 
 @RestControllerAdvice
-@RequiredArgsConstructor
 public class GlobalExceptionHandling {
-
-    private final ErrorLogStore errorLogStore;
 
     /**
      * Handle exception when validate data
@@ -36,7 +31,7 @@ public class GlobalExceptionHandling {
      * @param request
      * @return errorResponse
      */
-    @ExceptionHandler({ConstraintViolationException.class, ValidationException.class,
+    @ExceptionHandler({ConstraintViolationException.class,
             MissingServletRequestParameterException.class, MethodArgumentNotValidException.class})
     @ApiResponses(value = {
             @ApiResponse(responseCode = "400", description = "Bad Request",
@@ -56,7 +51,6 @@ public class GlobalExceptionHandling {
                             ))})
     })
     public ErrorResponse handleValidationException(Exception e, WebRequest request) {
-        logError(e, request);
         ErrorResponse errorResponse = new ErrorResponse();
         errorResponse.setTimestamp(new Date());
         errorResponse.setStatus(BAD_REQUEST.value());
@@ -74,9 +68,6 @@ public class GlobalExceptionHandling {
             errorResponse.setMessage(message);
         } else if (e instanceof ConstraintViolationException) {
             errorResponse.setError("Invalid Parameter");
-            errorResponse.setMessage(message.substring(message.indexOf(" ") + 1));
-        } else if (e instanceof jakarta.validation.ValidationException) {
-            errorResponse.setError("Invalid Payload");
             errorResponse.setMessage(message.substring(message.indexOf(" ") + 1));
         } else {
             errorResponse.setError("Invalid Data");
@@ -112,7 +103,6 @@ public class GlobalExceptionHandling {
                             ))})
     })
     public ErrorResponse handleAccessDeniedException(Exception e, WebRequest request) {
-        logError(e, request);
         ErrorResponse errorResponse = new ErrorResponse();
         errorResponse.setTimestamp(new Date());
         errorResponse.setPath(request.getDescription(false).replace("uri=", ""));
@@ -149,7 +139,6 @@ public class GlobalExceptionHandling {
                             ))})
     })
     public ErrorResponse handleResourceNotFoundException(ResourceNotFoundException e, WebRequest request) {
-        logError(e, request);
         ErrorResponse errorResponse = new ErrorResponse();
         errorResponse.setTimestamp(new Date());
         errorResponse.setPath(request.getDescription(false).replace("uri=", ""));
@@ -186,7 +175,6 @@ public class GlobalExceptionHandling {
                             ))})
     })
     public ErrorResponse handleDuplicateKeyException(InvalidDataException e, WebRequest request) {
-        logError(e, request);
         ErrorResponse errorResponse = new ErrorResponse();
         errorResponse.setTimestamp(new Date());
         errorResponse.setPath(request.getDescription(false).replace("uri=", ""));
@@ -223,7 +211,6 @@ public class GlobalExceptionHandling {
                             ))})
     })
     public ErrorResponse handleException(Exception e, WebRequest request) {
-        logError(e, request);
         ErrorResponse errorResponse = new ErrorResponse();
         errorResponse.setTimestamp(new Date());
         errorResponse.setPath(request.getDescription(false).replace("uri=", ""));
@@ -242,33 +229,5 @@ public class GlobalExceptionHandling {
         private String path;
         private String error;
         private String message;
-    }
-
-    private void logError(Exception e, WebRequest request) {
-        try {
-            ServletWebRequest servletWebRequest = (request instanceof ServletWebRequest)
-                    ? (ServletWebRequest) request : null;
-
-            String path = request.getDescription(false).replace("uri=", "");
-            String method = servletWebRequest != null && servletWebRequest.getHttpMethod() != null
-                    ? servletWebRequest.getHttpMethod().name()
-                    : null;
-            String query = servletWebRequest != null && servletWebRequest.getRequest() != null
-                    ? servletWebRequest.getRequest().getQueryString()
-                    : null;
-
-            ErrorLogEntry entry = ErrorLogEntry.builder()
-                    .timestamp(Instant.now())
-                    .method(method)
-                    .path(path)
-                    .query(query)
-                    .exceptionClass(e.getClass().getSimpleName())
-                    .message(e.getMessage())
-                    .build();
-
-            errorLogStore.add(entry);
-        } catch (Exception ignored) {
-            // Do not let logging failures interrupt the main error handling flow
-        }
     }
 }
