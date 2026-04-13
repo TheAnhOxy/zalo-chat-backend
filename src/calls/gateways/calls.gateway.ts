@@ -31,11 +31,13 @@ export class CallsGateway {
     @MessageBody() data: { callDto: CreateCallDto; offer: any },
     @ConnectedSocket() client: Socket,
   ) {
-    this.logger.log(`User ${data.callDto.callerId} starting call in room ${data.callDto.conversationId}`);
-    
+    this.logger.log(
+      `User ${data.callDto.callerId} starting call in room ${data.callDto.conversationId}`,
+    );
+
     // Lưu bản ghi cuộc gọi vào DB (Trạng thái: CALLING)
     const callRecord = await this.callsService.create(data.callDto);
-    
+
     // Gửi tín hiệu 'incoming_call' cho tất cả mọi người trong room TRỪ người gọi
     client.to(data.callDto.conversationId).emit('incoming_call', {
       callId: callRecord._id,
@@ -54,22 +56,24 @@ export class CallsGateway {
    */
   @SubscribeMessage('answer_call')
   async handleAnswerCall(
-    @MessageBody() data: { conversationId: string; answer: any; callId: string },
+    @MessageBody()
+    data: { conversationId: string; answer: any; callId: string },
     @ConnectedSocket() client: Socket,
   ) {
-    this.logger.log(`Call ${data.callId} accepted in room ${data.conversationId}`);
+    this.logger.log(
+      `Call ${data.callId} accepted in room ${data.conversationId}`,
+    );
 
     // Cập nhật trạng thái bắt đầu cuộc gọi thực tế vào DB
-    await this.callsService.update(data.callId, { 
+    await this.callsService.update(data.callId, {
       status: CallStatus.ACCEPTED,
-      startedAt: new Date().toISOString() 
     });
 
     // Gửi Answer cho mọi người trong room TRỪ người vừa nhấn nghe (User 2)
     // Người gọi (User 1) sẽ nhận được cái này để bắt đầu kết nối P2P
     client.to(data.conversationId).emit('call_answered', {
       answer: data.answer,
-      callId: data.callId
+      callId: data.callId,
     });
   }
 
@@ -79,11 +83,22 @@ export class CallsGateway {
    */
   @SubscribeMessage('ice_candidate')
   handleIceCandidate(
-    @MessageBody() data: { conversationId: string; candidate: any },
+    @MessageBody()
+    data: {
+      conversationId: string;
+      candidate: string;
+      sdpMid: string;
+      sdpMLineIndex: number;
+    },
     @ConnectedSocket() client: Socket,
   ) {
-    // Chỉ chuyển tiếp (broadcast) cho người kia, không gửi ngược lại cho chính mình
-    client.to(data.conversationId).emit('ice_candidate', data.candidate);
+    this.logger.log(`ICE from ${client.id}: ${JSON.stringify(data)}`);
+
+    client.to(data.conversationId).emit('ice_candidate', {
+      candidate: data.candidate,
+      sdpMid: data.sdpMid,
+      sdpMLineIndex: data.sdpMLineIndex,
+    });
   }
 
   /**
@@ -114,7 +129,7 @@ export class CallsGateway {
 
     // Thông báo cho tất cả người còn lại trong room đóng màn hình cuộc gọi
     client.to(data.conversationId).emit('call_ended', { callId: data.callId });
-    
+
     return updatedCall;
   }
 
@@ -128,9 +143,23 @@ export class CallsGateway {
   ) {
     this.logger.log(`Call ${data.callId} rejected`);
 
-    await this.callsService.update(data.callId, { status: CallStatus.REJECTED });
-    
+    await this.callsService.update(data.callId, {
+      status: CallStatus.REJECTED,
+    });
+
     // Báo cho người gọi biết cuộc gọi bị từ chối
-    client.to(data.conversationId).emit('call_rejected', { callId: data.callId });
+    client
+      .to(data.conversationId)
+      .emit('call_rejected', { callId: data.callId });
+  }
+
+  @SubscribeMessage('call_connected')
+  async handleConnected(@MessageBody() data: { callId: string }) {
+    this.logger.log(`Call ${data.callId} connected`);
+
+    await this.callsService.update(data.callId, {
+      startedAt: new Date().toISOString(),
+      status: CallStatus.ACCEPTED,
+    });
   }
 }
