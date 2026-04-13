@@ -18,15 +18,15 @@ import { MessageSeenByDto } from './message-seen-by.dto';
 export class CreateMessageDto {
   @ApiProperty()
   @IsMongoId()
-  conversationId: string;
+  conversationId!: string;
 
   @ApiProperty()
   @IsMongoId()
-  senderId: string;
+  senderId!: string;
 
   @ApiProperty({ enum: MessageType })
   @IsEnum(MessageType)
-  type: MessageType;
+  type!: MessageType;
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -62,7 +62,7 @@ export class MessageReaction {
     enum: Object.values(ReactionType),
     required: true,
   })
-  type: ReactionType;
+  reactionType: ReactionType; // Đã đổi tên để tránh xung đột
 }
 export const MessageReactionMongoSchema =
   SchemaFactory.createForClass(MessageReaction);
@@ -93,8 +93,9 @@ export class Message {
     type: String,
     enum: Object.values(MessageType),
     required: true,
+    alias: 'type', 
   })
-  type: MessageType;
+  messageType: MessageType; 
 
   @Prop({ type: String, default: '' })
   content: string;
