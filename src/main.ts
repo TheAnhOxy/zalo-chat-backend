@@ -1,14 +1,37 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
-import { json, urlencoded } from 'express';
+import { json, text, urlencoded } from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.setGlobalPrefix('api/v1');
 
   // Increase payload size for file uploads
   app.use(json({ limit: '50mb' }));
+  app.use(text({ type: 'text/plain', limit: '50mb' }));
+
+  // Some clients (e.g. Postman raw Text) may send JSON as text/plain.
+  // Parse it so validation receives a proper object payload.
+  app.use((req, _res, next) => {
+    if (req.is('text/plain') && typeof req.body === 'string') {
+      const raw = req.body.trim();
+      const seemsJson =
+        (raw.startsWith('{') && raw.endsWith('}')) ||
+        (raw.startsWith('[') && raw.endsWith(']'));
+
+      if (seemsJson) {
+        try {
+          req.body = JSON.parse(raw) as unknown;
+        } catch {
+          // Leave as-is. Validation pipe will return INVALID_PAYLOAD.
+        }
+      }
+    }
+    next();
+  });
+
   app.use(urlencoded({ extended: true, limit: '50mb' }));
 
   // Enable CORS
@@ -23,6 +46,21 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      exceptionFactory: (errors) => {
+        const details = errors.map((e) => ({
+          field: e.property,
+          messages: e.constraints ? Object.values(e.constraints) : ['Invalid value'],
+        }));
+
+        return new BadRequestException({
+          success: false,
+          error: {
+            code: 'INVALID_PAYLOAD',
+            message: 'Du lieu gui len khong hop le',
+            details,
+          },
+        });
+      },
     }),
   );
 
@@ -41,6 +79,7 @@ async function bootstrap() {
     .addTag('Stories', 'Zalo Story — collection stories')
     .addTag('Reports (Admin)', 'Báo cáo vi phạm — collection reports')
     .addTag('Seed', 'Dữ liệu mẫu — chỉ dev / SEED_HTTP=true')
+    .addTag('Auth', 'Đăng ký / đăng nhập / OTP / JWT')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

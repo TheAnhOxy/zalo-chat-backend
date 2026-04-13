@@ -14,6 +14,7 @@ import { StoriesModule } from './stories/stories.module';
 import { ReportsModule } from './reports/reports.module';
 import { SeedModule } from './seed/seed.module';
 import { getMongoConfig } from './config/mongo.config';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { getMongoConfig } from './config/mongo.config';
     StoriesModule,
     ReportsModule,
     SeedModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
