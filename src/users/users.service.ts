@@ -227,7 +227,18 @@ export class UsersService {
   }
 
   async findByPhone(phone: string): Promise<Record<string, unknown> | null> {
-    const user = await this.userModel.findOne({ phone }).exec();
+    // Chuẩn hóa để tìm cả 2 định dạng: 0xxx và +84xxx
+    const variants = new Set<string>([phone]);
+
+    if (phone.startsWith('+84')) {
+      variants.add('0' + phone.slice(3));
+    } else if (phone.startsWith('0')) {
+      variants.add('+84' + phone.slice(1));
+    }
+
+    const user = await this.userModel
+      .findOne({ phone: { $in: Array.from(variants) } })
+      .exec();
     return user ? this.toPublic(user) : null;
   }
 
