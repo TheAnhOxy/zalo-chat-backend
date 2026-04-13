@@ -2,18 +2,29 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  InternalServerErrorException,
+  BadRequestException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as bcrypt from 'bcrypt';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { User, UserDocument } from './schemas/user.schema';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UpdateUserProfileDto } from './dto/update-user-profile.dto';
+import { UpdateUserPrivacyDto } from './dto/update-user-privacy.dto';
+import { UpdateUserStatusDto } from './dto/update-user-status.dto';
+import { AvatarPresignDto } from './dto/avatar-presign.dto';
+import { UpdateAvatarDto } from './dto/update-avatar.dto';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    private readonly configService: ConfigService,
   ) {}
 
   async create(dto: CreateUserDto): Promise<Record<string, unknown>> {
@@ -53,13 +64,112 @@ export class UsersService {
   }
 
   async findById(id: string): Promise<Record<string, unknown>> {
-    if (!Types.ObjectId.isValid(id)) {
-      throw new NotFoundException('Không tìm thấy người dùng');
+    const user = await this.findDocById(id);
+    return this.toPublic(user);
+  }
+
+  async updateProfile(
+    userId: string,
+    dto: UpdateUserProfileDto,
+  ): Promise<Record<string, unknown>> {
+    const user = await this.findDocById(userId);
+
+    if (dto.email !== undefined) {
+      throw new BadRequestException('email cannot be updated');
     }
-    const user = await this.userModel.findById(id).exec();
-    if (!user) {
-      throw new NotFoundException('Không tìm thấy người dùng');
+
+    if (dto.phone !== undefined) {
+      throw new BadRequestException('phone cannot be updated');
     }
+
+    if (dto.fullName !== undefined) user.fullName = dto.fullName;
+    if (dto.bio !== undefined) user.bio = dto.bio;
+    if (dto.gender !== undefined) user.gender = dto.gender;
+    if (dto.avatar !== undefined) user.avatar = dto.avatar;
+    if (dto.coverImage !== undefined) user.coverImage = dto.coverImage;
+    if (dto.isBlocked !== undefined) user.isBlocked = dto.isBlocked;
+    if (dto.dob !== undefined) user.dob = dto.dob ? new Date(dto.dob) : null;
+
+    await user.save();
+    return this.toPublic(user);
+  }
+
+  async updatePrivacy(
+    userId: string,
+    dto: UpdateUserPrivacyDto,
+  ): Promise<Record<string, unknown>> {
+    const user = await this.findDocById(userId);
+    Object.assign(user.privacy, dto);
+    await user.save();
+    return this.toPublic(user);
+  }
+
+  async updateStatus(
+    userId: string,
+    dto: UpdateUserStatusDto,
+  ): Promise<Record<string, unknown>> {
+    const user = await this.findDocById(userId);
+    user.status.isOnline = dto.isOnline;
+    user.status.lastSeen = dto.isOnline ? null : new Date();
+    await user.save();
+    return this.toPublic(user);
+  }
+
+  async createAvatarPresignedUrl(
+    userId: string,
+    dto: AvatarPresignDto,
+  ): Promise<Record<string, string>> {
+    await this.findDocById(userId);
+
+    const region = this.configService.get<string>('S3_REGION');
+    const bucket = this.configService.get<string>('S3_BUCKET_NAME');
+    const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
+    const secretAccessKey = this.configService.get<string>('AWS_SECRET_ACCESS_KEY');
+
+    if (!region || !bucket || !accessKeyId || !secretAccessKey) {
+      throw new InternalServerErrorException(
+        'Missing S3 configuration. Please set S3_REGION, S3_BUCKET_NAME, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY',
+      );
+    }
+
+    const safeFileName = dto.fileName
+      .trim()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-zA-Z0-9._-]/g, '');
+
+    const objectKey = `avatars/${userId}/${Date.now()}-${safeFileName}`;
+    const s3Client = new S3Client({
+      region,
+      credentials: {
+        accessKeyId,
+        secretAccessKey,
+      },
+    });
+
+    const command = new PutObjectCommand({
+      Bucket: bucket,
+      Key: objectKey,
+      ContentType: dto.contentType,
+    });
+
+    const uploadUrl = await getSignedUrl(s3Client, command, {
+      expiresIn: 300,
+    });
+    const fileUrl = `https://${bucket}.s3.${region}.amazonaws.com/${objectKey}`;
+
+    return {
+      uploadUrl,
+      fileUrl,
+    };
+  }
+
+  async updateAvatar(
+    userId: string,
+    dto: UpdateAvatarDto,
+  ): Promise<Record<string, unknown>> {
+    const user = await this.findDocById(userId);
+    user.avatar = dto.avatar;
+    await user.save();
     return this.toPublic(user);
   }
 
@@ -145,6 +255,19 @@ export class UsersService {
     if (!res) {
       throw new NotFoundException('Không tìm thấy người dùng');
     }
+  }
+
+  private async findDocById(id: string): Promise<UserDocument> {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new NotFoundException('Không tìm thấy người dùng');
+    }
+
+    const user = await this.userModel.findById(id).exec();
+    if (!user) {
+      throw new NotFoundException('Không tìm thấy người dùng');
+    }
+
+    return user;
   }
 
   private toPublic(doc: UserDocument): Record<string, unknown> {
