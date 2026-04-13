@@ -19,6 +19,7 @@ import { UpdateUserPrivacyDto } from './dto/update-user-privacy.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 import { AvatarPresignDto } from './dto/avatar-presign.dto';
 import { UpdateAvatarDto } from './dto/update-avatar.dto';
+import { UpdateCoverImageDto } from './dto/update-cover-image.dto';
 
 @Injectable()
 export class UsersService {
@@ -121,6 +122,46 @@ export class UsersService {
   ): Promise<Record<string, string>> {
     await this.findDocById(userId);
 
+    return this.createPresignedUrlForImage({
+      userId,
+      folder: 'avatars',
+      fileName: dto.fileName,
+      contentType: dto.contentType,
+    });
+  }
+
+  async createCoverPresignedUrl(
+    userId: string,
+    dto: AvatarPresignDto,
+  ): Promise<Record<string, string>> {
+    await this.findDocById(userId);
+
+    return this.createPresignedUrlForImage({
+      userId,
+      folder: 'covers',
+      fileName: dto.fileName,
+      contentType: dto.contentType,
+    });
+  }
+
+  async updateCoverImage(
+    userId: string,
+    dto: UpdateCoverImageDto,
+  ): Promise<Record<string, unknown>> {
+    const user = await this.findDocById(userId);
+    user.coverImage = dto.coverImage;
+    await user.save();
+    return this.toPublic(user);
+  }
+
+  private async createPresignedUrlForImage(params: {
+    userId: string;
+    folder: 'avatars' | 'covers';
+    fileName: string;
+    contentType: string;
+  }): Promise<Record<string, string>> {
+    const { userId, folder, fileName, contentType } = params;
+
     const region = this.configService.get<string>('S3_REGION');
     const bucket = this.configService.get<string>('S3_BUCKET_NAME');
     const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
@@ -132,12 +173,12 @@ export class UsersService {
       );
     }
 
-    const safeFileName = dto.fileName
+    const safeFileName = fileName
       .trim()
       .replace(/\s+/g, '-')
       .replace(/[^a-zA-Z0-9._-]/g, '');
 
-    const objectKey = `avatars/${userId}/${Date.now()}-${safeFileName}`;
+    const objectKey = `${folder}/${userId}/${Date.now()}-${safeFileName}`;
     const s3Client = new S3Client({
       region,
       credentials: {
@@ -149,7 +190,7 @@ export class UsersService {
     const command = new PutObjectCommand({
       Bucket: bucket,
       Key: objectKey,
-      ContentType: dto.contentType,
+      ContentType: contentType,
     });
 
     const uploadUrl = await getSignedUrl(s3Client, command, {
@@ -157,10 +198,7 @@ export class UsersService {
     });
     const fileUrl = `https://${bucket}.s3.${region}.amazonaws.com/${objectKey}`;
 
-    return {
-      uploadUrl,
-      fileUrl,
-    };
+    return { uploadUrl, fileUrl };
   }
 
   async updateAvatar(

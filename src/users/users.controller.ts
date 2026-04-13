@@ -21,6 +21,7 @@ import { UpdateUserPrivacyDto } from './dto/update-user-privacy.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 import { AvatarPresignDto } from './dto/avatar-presign.dto';
 import { UpdateAvatarDto } from './dto/update-avatar.dto';
+import { UpdateCoverImageDto } from './dto/update-cover-image.dto';
 
 @ApiTags('Users')
 @Controller('users')
@@ -89,6 +90,24 @@ export class UsersController {
     @Body() dto: UpdateAvatarDto,
   ) {
     return this.usersService.updateAvatar(userId, dto);
+  }
+
+  @Post(':userId/cover/presign')
+  @ApiOperation({ summary: 'Xin presigned URL upload cover image lên S3' })
+  createCoverPresignedUrl(
+    @Param('userId') userId: string,
+    @Body() dto: AvatarPresignDto,
+  ) {
+    return this.usersService.createCoverPresignedUrl(userId, dto);
+  }
+
+  @Patch(':userId/cover')
+  @ApiOperation({ summary: 'Cập nhật cover image sau khi upload thành công' })
+  updateCover(
+    @Param('userId') userId: string,
+    @Body() dto: UpdateCoverImageDto,
+  ) {
+    return this.usersService.updateCoverImage(userId, dto);
   }
 
   @Patch(':id')
