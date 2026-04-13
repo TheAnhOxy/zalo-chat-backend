@@ -6,7 +6,6 @@ import { json, text, urlencoded } from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.setGlobalPrefix('api/v1');
 
   // Increase payload size for file uploads
   app.use(json({ limit: '50mb' }));
