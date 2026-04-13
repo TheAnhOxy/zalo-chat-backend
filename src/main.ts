@@ -6,7 +6,7 @@ import { json, text, urlencoded } from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.setGlobalPrefix('api/v1');
+
 
   // Increase payload size for file uploads
   app.use(json({ limit: '50mb' }));
@@ -36,7 +36,7 @@ async function bootstrap() {
 
   // Enable CORS
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: true, // cho phép mọi origin trong dev
     credentials: true,
   });
 
