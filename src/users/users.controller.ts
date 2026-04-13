@@ -7,6 +7,7 @@ import {
   Param,
   Put,
   Delete,
+  NotFoundException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -39,6 +40,14 @@ export class UsersController {
   @ApiOperation({ summary: 'Danh sách user' })
   findAll() {
     return this.usersService.findAll();
+  }
+
+  @Get('phone/:phone')
+  @ApiOperation({ summary: 'Tìm user theo số điện thoại' })
+  async findByPhone(@Param('phone') phone: string) {
+    const user = await this.usersService.findByPhone(phone);
+    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+    return user;
   }
 
   @Get(':userId')
