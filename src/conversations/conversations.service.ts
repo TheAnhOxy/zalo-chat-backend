@@ -58,22 +58,55 @@ export class ConversationsService {
     return row as Record<string, unknown>;
   }
 
-  async findByMemberUserId(
-    userId: string,
-  ): Promise<Record<string, unknown>[]> {
-    if (!Types.ObjectId.isValid(userId)) {
-      return [];
-    }
-    const list = await this.conversationModel
-      .find({
-        'members.userId': new Types.ObjectId(userId),
-      })
-      .sort({ updatedAt: -1 })
-      .lean()
-      .exec();
-    return list as Record<string, unknown>[];
-  }
+  async findByMemberUserId(userId: string): Promise<Record<string, unknown>[]> {
+    if (!Types.ObjectId.isValid(userId)) return [];
 
+    const userObjId = new Types.ObjectId(userId);
+
+    const conversations = await this.conversationModel.aggregate([
+      {
+        $match: { 'members.userId': userObjId },
+      },
+      {
+        $lookup: {
+          from: 'messages',
+          localField: '_id',
+          foreignField: 'conversationId',
+          as: 'allMessages',
+        },
+      },
+      {
+        $addFields: {
+          unreadCount: {
+            $size: {
+              $filter: {
+                input: '$allMessages',
+                as: 'msg',
+                cond: {
+                  $and: [
+                    { $ne: ['$$msg.senderId', userObjId] }, // Không phải tin của mình
+                    { $eq: ['$$msg.isRecalled', false] },
+                    {
+                      $not: {
+                        $in: [
+                          userObjId,
+                          { $ifNull: ['$$msg.seenBy.userId', []] },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+      { $sort: { updatedAt: -1 } },
+      { $project: { allMessages: 0 } }, // bỏ bớt dữ liệu thừa
+    ]);
+
+    return conversations as Record<string, unknown>[];
+  }
   async update(
     id: string,
     dto: UpdateConversationDto,
@@ -104,6 +137,30 @@ export class ConversationsService {
     return toPlainDoc(doc);
   }
 
+  async updateLastMessage(
+    conversationId: string,
+    lastMsgDto: LastMessageDto,
+  ): Promise<void> {
+    if (!Types.ObjectId.isValid(conversationId)) {
+      throw new NotFoundException('Conversation ID không hợp lệ');
+    }
+
+    const updateData = {
+      lastMessage: this.mapLastMessage(lastMsgDto),
+      updatedAt: new Date(), // Quan trọng để sort danh sách chat
+    };
+
+    const result = await this.conversationModel.findByIdAndUpdate(
+      conversationId,
+      { $set: updateData },
+      { new: true },
+    );
+
+    if (!result) {
+      throw new NotFoundException('lỗi update last message');
+    }
+  }
+
   async remove(id: string): Promise<void> {
     const res = await this.conversationModel.findByIdAndDelete(id).exec();
     if (!res) {
@@ -126,9 +183,7 @@ export class ConversationsService {
 
   private mapLastMessage(dto: LastMessageDto): LastMessage {
     return {
-      messageId: dto.messageId
-        ? new Types.ObjectId(dto.messageId)
-        : null,
+      messageId: dto.messageId ? new Types.ObjectId(dto.messageId) : null,
       content: dto.content,
       senderId: new Types.ObjectId(dto.senderId),
       createdAt: dto.createdAt ? new Date(dto.createdAt) : new Date(),

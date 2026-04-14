@@ -13,6 +13,7 @@ import { CreateMessageDto } from './dto/create-message.dto';
 import { UpdateMessageDto } from './dto/update-message.dto';
 import { MessageMetadataDto } from './dto/message-metadata.dto';
 import { toPlainDoc } from '../common/mongo-plain';
+import { ConversationsService } from '../conversations/conversations.service'; // ← inject ở constructor
 
 @Injectable()
 export class MessagesService {
@@ -20,10 +21,11 @@ export class MessagesService {
 
   constructor(
     @InjectModel(Message.name) private messageModel: Model<MessageDocument>,
+    private conversationsService: ConversationsService,
   ) {}
 
   // ================= CREATE =================
-  async create(dto: CreateMessageDto): Promise<Record<string, unknown>> {
+async create(dto: CreateMessageDto): Promise<Record<string, unknown>> {
     this.logger.debug('DTO nhận được:', JSON.stringify(dto));
     this.logger.debug(`TYPE RECEIVED: "${dto.type}"`);
 
@@ -59,12 +61,26 @@ export class MessagesService {
 
     try {
       const saved = await doc.save();
+      const plainMsg = toPlainDoc(saved);
 
       this.logger.debug('AFTER SAVE ✅');
 
-      return toPlainDoc(saved);
+      // ==================== CẬP NHẬT lastMessage ====================
+      try {
+        await this.conversationsService.updateLastMessage(dto.conversationId, {
+          messageId: plainMsg._id?.toString() || saved._id.toString(),
+          content: (plainMsg.content as string) ?? '',           // ← Ép kiểu + fallback
+          senderId: dto.senderId,
+          createdAt: new Date().toISOString(),
+        });
+        this.logger.debug(`Đã cập nhật lastMessage cho conversation ${dto.conversationId}`);
+      } catch (updateError: any) {
+        this.logger.warn(`Không cập nhật được lastMessage: ${updateError.message}`);
+        // Không throw để tránh ảnh hưởng việc gửi tin nhắn
+      }
+
+      return plainMsg;
     } catch (error) {
-      this.logger.error('❌ SAVE ERROR: ' + error.message, error.stack);
       throw error;
     }
   }

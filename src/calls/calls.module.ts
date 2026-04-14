@@ -4,10 +4,12 @@ import { Call, CallSchema } from './schemas/call.schema';
 import { CallsService } from './calls.service';
 import { CallsController } from './calls.controller';
 import { CallsGateway } from './gateways/calls.gateway';
+import { ConversationsModule } from '../conversations/conversations.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: Call.name, schema: CallSchema }]),
+    ConversationsModule,
   ],
   controllers: [CallsController],
   providers: [CallsService, CallsGateway],
