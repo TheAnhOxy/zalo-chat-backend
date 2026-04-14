@@ -4,6 +4,7 @@ import {
   MessageBody,
   ConnectedSocket,
   WebSocketServer,
+  OnGatewayConnection,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { CallsService } from '../calls.service';
@@ -14,13 +15,22 @@ import { Logger } from '@nestjs/common';
 @WebSocketGateway({
   cors: { origin: '*' },
 })
-export class CallsGateway {
+export class CallsGateway implements OnGatewayConnection {
   @WebSocketServer()
   server!: Server;
 
   private readonly logger = new Logger(CallsGateway.name);
 
   constructor(private readonly callsService: CallsService) {}
+
+  async handleConnection(client: Socket) {
+    const userId = client.handshake.query.userId as string;
+
+    if (userId) {
+      client.join(userId);
+      this.logger.log(`User ${userId} joined personal room ${userId}`);
+    }
+  }
 
   /**
    * 1. Bắt đầu cuộc gọi
@@ -47,9 +57,9 @@ export class CallsGateway {
     //   conversationId: data.callDto.conversationId,
     // });
 
-    // Gửi vào room userId của từng participant:
-    for (const participantId of data.callDto.participants) {
-      client.to(participantId.toString()).emit('incoming_call', {
+    // Gửi trực tiếp vào room cá nhân của từng người nhận:
+    for (const receiverId of data.callDto.participants) {
+      this.server.to(receiverId.toString()).emit('incoming_call', {
         callId: callRecord._id,
         offer: data.offer,
         callerId: data.callDto.callerId,

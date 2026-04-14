@@ -49,6 +49,7 @@ export class MessagesGateway
   async handleConnection(client: Socket) {
     const userId = client.handshake.query.userId as string;
     if (userId) {
+      client.join(userId);
       this.activeUsers.set(userId, client.id);
       
       // Cập nhật trạng thái vào lồng object 'status' theo Schema của bạn
@@ -64,6 +65,16 @@ export class MessagesGateway
       });
       
       this.logger.log(`User ${userId} is online`);
+    }
+  }
+
+  @SubscribeMessage('join_user_room')
+  handleJoinUserRoom(
+    @MessageBody('userId') userId: string,
+    @ConnectedSocket() client: Socket,
+  ) {
+    if (userId) {
+      client.join(userId);
     }
   }
 
