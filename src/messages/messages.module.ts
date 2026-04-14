@@ -4,10 +4,12 @@ import { Message, MessageSchema } from './schemas/message.schema';
 import { MessagesService } from './messages.service';
 import { MessagesController } from './messages.controller';
 import { MessagesGateway } from './gateways/messages.gateway';
+import { UsersModule } from 'src/users/users.module'; // 👈 Import UsersModule để sử dụng UsersService trong MessagesGateway
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: Message.name, schema: MessageSchema }]),
+    UsersModule,
   ],
   controllers: [MessagesController],
   providers: [MessagesService, MessagesGateway],
