@@ -25,6 +25,14 @@ export class CreateCallDto {
   @IsMongoId({ each: true })
   participants: string[];
 
+  @ApiPropertyOptional()
+@IsOptional()
+callerName?: string;
+
+@ApiPropertyOptional()
+@IsOptional()
+callerAvatar?: string;
+
   @ApiProperty({ enum: CallType })
   @IsEnum(CallType)
   type: CallType;

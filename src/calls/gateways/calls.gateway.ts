@@ -38,16 +38,38 @@ export class CallsGateway {
     // Lưu bản ghi cuộc gọi vào DB (Trạng thái: CALLING)
     const callRecord = await this.callsService.create(data.callDto);
 
-    // Gửi tín hiệu 'incoming_call' cho tất cả mọi người trong room TRỪ người gọi
-    client.to(data.callDto.conversationId).emit('incoming_call', {
-      callId: callRecord._id,
-      offer: data.offer,
-      callerId: data.callDto.callerId,
-      type: data.callDto.type,
-      conversationId: data.callDto.conversationId,
-    });
+    // // Gửi tín hiệu 'incoming_call' cho tất cả mọi người trong room TRỪ người gọi
+    // client.to(data.callDto.conversationId).emit('incoming_call', {
+    //   callId: callRecord._id,
+    //   offer: data.offer,
+    //   callerId: data.callDto.callerId,
+    //   type: data.callDto.type,
+    //   conversationId: data.callDto.conversationId,
+    // });
+
+    // Gửi vào room userId của từng participant:
+    for (const participantId of data.callDto.participants) {
+      client.to(participantId.toString()).emit('incoming_call', {
+        callId: callRecord._id,
+        offer: data.offer,
+        callerId: data.callDto.callerId,
+        callerName: data.callDto.callerName, // thêm
+        callerAvatar: data.callDto.callerAvatar, // thêm
+        type: data.callDto.type,
+        conversationId: data.callDto.conversationId,
+      });
+    }
 
     return callRecord;
+  }
+
+  @SubscribeMessage('join_user_room')
+  handleJoinUserRoom(
+    @MessageBody() data: { userId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    client.join(data.userId);
+    this.logger.log(`User ${data.userId} joined their personal room`);
   }
 
   /**
@@ -92,8 +114,6 @@ export class CallsGateway {
     },
     @ConnectedSocket() client: Socket,
   ) {
-    this.logger.log(`ICE from ${client.id}: ${JSON.stringify(data)}`);
-
     client.to(data.conversationId).emit('ice_candidate', {
       candidate: data.candidate,
       sdpMid: data.sdpMid,
