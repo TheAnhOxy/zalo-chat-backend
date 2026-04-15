@@ -12,17 +12,25 @@ import {
   FriendshipDocument,
   FriendshipStatus,
 } from './schemas/friendship.schema';
+import {
+  NotificationType,
+} from '../notifications/schemas/notification.schema';
 import { CreateFriendshipDto } from './dto/create-friendship.dto';
 import { UpdateFriendshipDto } from './dto/update-friendship.dto';
 import { toPlainDoc } from '../common/mongo-plain';
 import { BlocksService } from '../blocks/blocks.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { User, UserDocument } from '../users/schemas/user.schema';
 
 @Injectable()
 export class FriendshipsService {
   constructor(
     @InjectModel(Friendship.name)
     private friendshipModel: Model<FriendshipDocument>,
+    @InjectModel(User.name)
+    private userModel: Model<UserDocument>,
     private readonly blocksService: BlocksService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(dto: CreateFriendshipDto): Promise<Record<string, unknown>> {
@@ -131,11 +139,28 @@ export class FriendshipsService {
       .findOne({
         pairKey: this.pairKey(meId, targetUserId),
       })
-      .lean()
       .exec();
 
     if (existing) {
-      return existing as Record<string, unknown>;
+      // Already friends -> keep current state.
+      if (existing.status === FriendshipStatus.ACCEPTED) {
+        return toPlainDoc(existing);
+      }
+
+      // Existing pending request -> keep idempotent behavior.
+      if (existing.status === FriendshipStatus.PENDING) {
+        return toPlainDoc(existing);
+      }
+
+      // Re-send after DECLINED / CANCELLED:
+      // reopen same row as a new outgoing request from current user.
+      existing.requesterId = new Types.ObjectId(meId);
+      existing.addresseeId = new Types.ObjectId(targetUserId);
+      existing.status = FriendshipStatus.PENDING;
+      existing.respondedAt = null;
+      await existing.save();
+      await this.createFriendRequestNotification(meId, targetUserId);
+      return toPlainDoc(existing);
     }
 
     try {
@@ -145,6 +170,8 @@ export class FriendshipsService {
         status: FriendshipStatus.PENDING,
         respondedAt: null,
       });
+
+      await this.createFriendRequestNotification(meId, targetUserId);
       return toPlainDoc(doc);
     } catch (err: unknown) {
       if (this.isDuplicateKeyError(err)) {
@@ -205,6 +232,10 @@ export class FriendshipsService {
     row.status = FriendshipStatus.ACCEPTED;
     row.respondedAt = new Date();
     await row.save();
+    await this.createFriendAcceptedNotification(
+      meId,
+      row.requesterId.toString(),
+    );
     return toPlainDoc(row);
   }
 
@@ -302,6 +333,7 @@ export class FriendshipsService {
       .exec();
     if (!row) return { status: 'none' };
 
+    const friendshipId = String((row as { _id: unknown })._id);
     const requesterId = String((row as { requesterId: unknown }).requesterId);
     const addresseeId = String((row as { addresseeId: unknown }).addresseeId);
     const rawStatus = (row as { status: unknown }).status;
@@ -311,10 +343,11 @@ export class FriendshipsService {
         ? (rawStatus as FriendshipStatus)
         : null;
 
-    if (status === FriendshipStatus.ACCEPTED) return { status: 'friends' };
+    if (status === FriendshipStatus.ACCEPTED)
+      return { status: 'friends', friendshipId };
     if (status === FriendshipStatus.PENDING) {
-      if (addresseeId === meId) return { status: 'pending_in' };
-      if (requesterId === meId) return { status: 'pending_out' };
+      if (addresseeId === meId) return { status: 'pending_in', friendshipId };
+      if (requesterId === meId) return { status: 'pending_out', friendshipId };
     }
 
     return { status: 'none' };
@@ -331,6 +364,62 @@ export class FriendshipsService {
 
   private pairKey(a: string, b: string): string {
     return [a, b].sort().join(':');
+  }
+
+  private async createFriendRequestNotification(
+    requesterId: string,
+    addresseeId: string,
+  ): Promise<void> {
+    try {
+      const requester = await this.userModel
+        .findById(requesterId)
+        .select('fullName')
+        .lean()
+        .exec();
+      const requesterName =
+        (requester as { fullName?: string } | null)?.fullName?.trim() ||
+        'Một người dùng';
+
+      await this.notificationsService.create({
+        receiverId: addresseeId,
+        type: NotificationType.FRIEND_REQUEST,
+        content: `${requesterName} đã gửi cho bạn một lời mời kết bạn`,
+        data: {
+          senderId: requesterId,
+        },
+        isRead: false,
+      });
+    } catch {
+      // Do not block friend request flow if notification creation fails.
+    }
+  }
+
+  private async createFriendAcceptedNotification(
+    accepterId: string,
+    requesterId: string,
+  ): Promise<void> {
+    try {
+      const accepter = await this.userModel
+        .findById(accepterId)
+        .select('fullName')
+        .lean()
+        .exec();
+      const accepterName =
+        (accepter as { fullName?: string } | null)?.fullName?.trim() ||
+        'Một người dùng';
+
+      await this.notificationsService.create({
+        receiverId: requesterId,
+        type: NotificationType.FRIEND_REQUEST,
+        content: `${accepterName} đã chấp nhận lời mời kết bạn của bạn`,
+        data: {
+          senderId: accepterId,
+        },
+        isRead: false,
+      });
+    } catch {
+      // Do not block accept flow if notification creation fails.
+    }
   }
 
   /**

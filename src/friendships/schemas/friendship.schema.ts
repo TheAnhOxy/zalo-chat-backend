@@ -4,10 +4,10 @@ import { HydratedDocument, Types } from 'mongoose';
 export type FriendshipDocument = HydratedDocument<Friendship>;
 
 export enum FriendshipStatus {
-  PENDING = 'pending',
-  ACCEPTED = 'accepted',
-  DECLINED = 'declined',
-  CANCELLED = 'cancelled',
+  PENDING = 'PENDING',
+  ACCEPTED = 'ACCEPTED',
+  DECLINED = 'DECLINED',
+  CANCELLED = 'CANCELLED',
 }
 
 @Schema({

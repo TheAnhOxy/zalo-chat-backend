@@ -8,11 +8,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { IsMongoId } from 'class-validator';
 import { AccessTokenGuard } from '../../common/auth/access-token.guard';
 import { CurrentUserId } from '../../common/auth/current-user.decorator';
 import { FriendshipsService } from '../friendships.service';
 
 class CreateFriendRequestDto {
+  @IsMongoId({ message: 'userId must be a valid MongoId' })
   userId: string;
 }
 

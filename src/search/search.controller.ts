@@ -19,11 +19,14 @@ export class SearchController {
     @Query('q') q?: string,
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
+    @Query('includeRelated') includeRelated?: string,
   ) {
     return this.searchService.searchUsers(me, {
       q: q || '',
       limit: limit ? Number(limit) : undefined,
       cursor,
+      includeRelated:
+        includeRelated === 'true' || includeRelated === '1',
     });
   }
 }
