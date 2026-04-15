@@ -227,7 +227,18 @@ export class UsersService {
   }
 
   async findByPhone(phone: string): Promise<Record<string, unknown> | null> {
-    const user = await this.userModel.findOne({ phone }).exec();
+    // Chuẩn hóa để tìm cả 2 định dạng: 0xxx và +84xxx
+    const variants = new Set<string>([phone]);
+
+    if (phone.startsWith('+84')) {
+      variants.add('0' + phone.slice(3));
+    } else if (phone.startsWith('0')) {
+      variants.add('+84' + phone.slice(1));
+    }
+
+    const user = await this.userModel
+      .findOne({ phone: { $in: Array.from(variants) } })
+      .exec();
     return user ? this.toPublic(user) : null;
   }
 
@@ -293,6 +304,31 @@ export class UsersService {
     if (!res) {
       throw new NotFoundException('Không tìm thấy người dùng');
     }
+  }
+  async getActiveFriends(userId: string) {
+  // 1. Tìm danh sách bạn bè của user này (giả sử bạn có bảng friendships)
+  // 2. Lọc những người có status.isOnline = true
+  // 3. Kiểm tra privacy.showOnline = true (Rất quan trọng vì Schema của bạn có trường này)
+  
+  return await this.userModel.find({
+    'status.isOnline': true,
+    'privacy.showOnline': true,
+    isBlocked: false,
+    // Thêm điều kiện thuộc danh sách bạn bè ở đây
+  }).select('fullName avatar status');
+}
+  // src/users/users.service.ts
+  async updateStatus2(userId: string, statusData: { isOnline: boolean; lastSeen: Date }) {
+   return await this.userModel.findByIdAndUpdate(
+      userId,
+      {
+       $set: {
+        'status.isOnline': statusData.isOnline,
+        'status.lastSeen': statusData.lastSeen,
+        },
+      },
+      { new: true },
+    );
   }
 
   private async findDocById(id: string): Promise<UserDocument> {

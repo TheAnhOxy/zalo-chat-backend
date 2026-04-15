@@ -35,10 +35,11 @@ async function bootstrap() {
   app.use(urlencoded({ extended: true, limit: '50mb' }));
 
   // Enable CORS
-  app.enableCors({
-    origin: true, // cho phép mọi origin trong dev
-    credentials: true,
-  });
+app.enableCors({
+  origin: true, // Cho phép mọi cổng (62015, 65190, v.v.) gọi tới
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+  credentials: true,
+});
 
   // Global validation pipe
   app.useGlobalPipes(
