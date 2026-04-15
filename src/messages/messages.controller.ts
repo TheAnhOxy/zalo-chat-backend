@@ -31,14 +31,17 @@ export class MessagesController {
 
   @Get('conversation/:conversationId')
   @ApiOperation({ summary: 'Tin theo hội thoại (createdAt giảm dần)' })
+  @ApiQuery({ name: 'userId', required: true, description: 'ID người dùng hiện tại để lọc tin nhắn đã xóa' })
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'skip', required: false })
   findByConversation(
     @Param('conversationId') conversationId: string,
+    @Query('userId') userId: string, // Thêm userId để truyền vào Service
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
     @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
   ) {
-    return this.messagesService.findByConversation(conversationId, {
+    // Truyền đúng 3 tham số: ID hội thoại, ID người dùng, và Object options
+    return this.messagesService.findByConversation(conversationId, userId, {
       limit,
       skip,
     });
