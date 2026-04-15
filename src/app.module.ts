@@ -15,6 +15,7 @@ import { ReportsModule } from './reports/reports.module';
 import { SeedModule } from './seed/seed.module';
 import { getMongoConfig } from './config/mongo.config';
 import { UploadModule } from './upload/upload.module';
+import { AuthModule } from './auth/auth.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -37,6 +38,7 @@ import { UploadModule } from './upload/upload.module';
     ReportsModule,
     SeedModule,
     UploadModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

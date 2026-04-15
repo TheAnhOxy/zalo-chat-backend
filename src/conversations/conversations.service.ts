@@ -1,6 +1,18 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  InternalServerErrorException,
+  OnModuleInit,
+  Logger,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import {
+  S3Client,
+  PutObjectCommand,
+  PutBucketCorsCommand,
+} from '@aws-sdk/client-s3';
 import {
   Conversation,
   ConversationDocument,
@@ -14,11 +26,111 @@ import { LastMessageDto } from './dto/last-message.dto';
 import { toPlainDoc } from '../common/mongo-plain';
 
 @Injectable()
-export class ConversationsService {
+export class ConversationsService implements OnModuleInit {
+  private readonly logger = new Logger(ConversationsService.name);
+
   constructor(
     @InjectModel(Conversation.name)
     private conversationModel: Model<ConversationDocument>,
+    private readonly configService: ConfigService,
   ) {}
+
+  async onModuleInit() {
+    await this.ensureS3BucketCors();
+  }
+
+  /** Cấu hình CORS cho S3 bucket để Flutter Web (Chrome) có thể load ảnh. */
+  private async ensureS3BucketCors(): Promise<void> {
+    const region = this.configService.get<string>('S3_REGION');
+    const bucket = this.configService.get<string>('S3_BUCKET_NAME');
+    const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
+    const secretAccessKey = this.configService.get<string>(
+      'AWS_SECRET_ACCESS_KEY',
+    );
+
+    if (!region || !bucket || !accessKeyId || !secretAccessKey) {
+      this.logger.warn('S3 config chưa đủ, bỏ qua setup CORS');
+      return;
+    }
+
+    try {
+      const s3Client = new S3Client({
+        region,
+        credentials: { accessKeyId, secretAccessKey },
+      });
+
+      await s3Client.send(
+        new PutBucketCorsCommand({
+          Bucket: bucket,
+          CORSConfiguration: {
+            CORSRules: [
+              {
+                AllowedOrigins: ['*'],
+                AllowedMethods: ['GET', 'HEAD'],
+                AllowedHeaders: ['*'],
+                ExposeHeaders: ['ETag'],
+                MaxAgeSeconds: 3600,
+              },
+            ],
+          },
+        }),
+      );
+
+      this.logger.log(`S3 CORS đã được cấu hình cho bucket: ${bucket}`);
+    } catch (err) {
+      this.logger.error('Không thể set S3 CORS:', err);
+    }
+  }
+
+  /** Upload ảnh nhóm qua backend → S3, trả về URL công khai. */
+  async uploadGroupAvatar(file: {
+    buffer: Buffer;
+    originalname: string;
+    mimetype: string;
+  }): Promise<{ fileUrl: string }> {
+    const region = this.configService.get<string>('S3_REGION');
+    const bucket = this.configService.get<string>('S3_BUCKET_NAME');
+    const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
+    const secretAccessKey = this.configService.get<string>(
+      'AWS_SECRET_ACCESS_KEY',
+    );
+
+    if (!region || !bucket || !accessKeyId || !secretAccessKey) {
+      throw new InternalServerErrorException(
+        'Missing S3 configuration: S3_REGION, S3_BUCKET_NAME, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY',
+      );
+    }
+
+    const extMap: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+      'image/bmp': 'bmp',
+      'image/tiff': 'tiff',
+      'image/svg+xml': 'svg',
+      'image/x-icon': 'ico',
+    };
+    const ext = extMap[file.mimetype] ?? 'jpg';
+    const objectKey = `group-avatars/${Date.now()}.${ext}`;
+    const s3Client = new S3Client({
+      region,
+      credentials: { accessKeyId, secretAccessKey },
+    });
+
+    const command = new PutObjectCommand({
+      Bucket: bucket,
+      Key: objectKey,
+      Body: file.buffer,
+      ContentType: file.mimetype,
+    });
+
+    await s3Client.send(command);
+
+    const fileUrl = `https://${bucket}.s3.${region}.amazonaws.com/${objectKey}`;
+    return { fileUrl };
+  }
 
   async create(dto: CreateConversationDto): Promise<Record<string, unknown>> {
     const doc = new this.conversationModel({
