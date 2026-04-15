@@ -53,7 +53,7 @@ export class MessagesGateway
       this.activeUsers.set(userId, client.id);
       
       // Cập nhật trạng thái vào lồng object 'status' theo Schema của bạn
-      await this.usersService.updateStatus(userId, {
+      await this.usersService.updateStatus2(userId, {
         isOnline: true,
         lastSeen: new Date(),
       });
@@ -94,9 +94,9 @@ export class MessagesGateway
     if (disconnectedUserId) {
       const now = new Date();
       // Cập nhật DB trạng thái ngoại tuyến và thời gian cuối
-      await this.usersService.updateStatus(disconnectedUserId, {
+      await this.usersService.updateStatus2(disconnectedUserId, {
         isOnline: false,
-        lastSeen: now,
+        lastSeen: new Date(),
       });
 
       // Thông báo cho mọi người để tắt chấm xanh và hiện "Ngoại tuyến"

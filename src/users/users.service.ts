@@ -318,7 +318,7 @@ export class UsersService {
   }).select('fullName avatar status');
 }
   // src/users/users.service.ts
-  async updateStatus(userId: string, statusData: { isOnline: boolean; lastSeen: Date }) {
+  async updateStatus2(userId: string, statusData: { isOnline: boolean; lastSeen: Date }) {
    return await this.userModel.findByIdAndUpdate(
       userId,
       {
