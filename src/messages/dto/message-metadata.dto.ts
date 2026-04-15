@@ -19,6 +19,11 @@ export class MessageMetadataDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsString()
+  thumbnailUrl?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsNumber()
   lat?: number;
 
