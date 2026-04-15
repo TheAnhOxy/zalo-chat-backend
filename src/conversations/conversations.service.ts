@@ -17,6 +17,7 @@ import {
   Conversation,
   ConversationDocument,
   ConversationMemberRole,
+  ConversationType,
   LastMessage,
 } from './schemas/conversation.schema';
 import { CreateConversationDto } from './dto/create-conversation.dto';
@@ -278,6 +279,37 @@ export class ConversationsService implements OnModuleInit {
     if (!res) {
       throw new NotFoundException('Không tìm thấy conversation');
     }
+  }
+
+  async findOrCreatePrivateConversation(
+    meId: string,
+    otherId: string,
+  ): Promise<Record<string, unknown>> {
+    const meOid = new Types.ObjectId(meId);
+    const otherOid = new Types.ObjectId(otherId);
+
+    const existing = await this.conversationModel
+      .findOne({
+        type: 'PRIVATE',
+        'members.userId': { $all: [meOid, otherOid] },
+        members: { $size: 2 },
+      })
+      .lean()
+      .exec();
+
+    if (existing) return existing as Record<string, unknown>;
+
+    const doc = new this.conversationModel({
+      type: 'PRIVATE',
+      members: [
+        { userId: meOid, role: ConversationMemberRole.MEMBER },
+        { userId: otherOid, role: ConversationMemberRole.MEMBER },
+      ],
+      lastMessage: null,
+    });
+
+    const saved = await doc.save();
+    return toPlainDoc(saved);
   }
 
   private mapMembers(members: ConversationMemberDto[]) {

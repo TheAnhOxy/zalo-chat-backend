@@ -76,6 +76,15 @@ export class ConversationsController {
     return this.conversationsService.create(dto);
   }
 
+  @Post('private')
+  @ApiOperation({ summary: 'Lấy hoặc tạo hội thoại PRIVATE giữa 2 người' })
+  getOrCreatePrivate(@Body() dto: { meId: string; otherId: string }) {
+    return this.conversationsService.findOrCreatePrivateConversation(
+      dto.meId,
+      dto.otherId,
+    );
+  }
+
   @Get()
   @ApiOperation({ summary: 'Danh sách conversations' })
   findAll() {
