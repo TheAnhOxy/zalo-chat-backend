@@ -212,7 +212,7 @@ export class MessagesService {
     return {
       fileName: dto?.fileName ?? '',
       fileSize: dto?.fileSize ?? null,
-      thumbnail: dto?.thumbnail ?? '',
+      thumbnail: dto?.thumbnailUrl ?? dto?.thumbnail ?? '',
       lat: dto?.lat ?? null,
       lng: dto?.lng ?? null,
       duration: dto?.duration ?? null,
@@ -222,6 +222,7 @@ export class MessagesService {
   private mergeMetadata(target: MessageMetadata, dto: MessageMetadataDto): void {
     if (dto.fileName !== undefined) target.fileName = dto.fileName;
     if (dto.fileSize !== undefined) target.fileSize = dto.fileSize;
+    if (dto.thumbnailUrl !== undefined) target.thumbnail = dto.thumbnailUrl;
     if (dto.thumbnail !== undefined) target.thumbnail = dto.thumbnail;
     if (dto.lat !== undefined) target.lat = dto.lat;
     if (dto.lng !== undefined) target.lng = dto.lng;

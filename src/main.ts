@@ -9,8 +9,8 @@ async function bootstrap() {
 
 
   // Increase payload size for file uploads
-  app.use(json({ limit: '50mb' }));
-  app.use(text({ type: 'text/plain', limit: '50mb' }));
+  app.use(json({ limit: '100mb' }));
+  app.use(text({ type: 'text/plain', limit: '100mb' }));
 
   // Some clients (e.g. Postman raw Text) may send JSON as text/plain.
   // Parse it so validation receives a proper object payload.
@@ -32,14 +32,14 @@ async function bootstrap() {
     next();
   });
 
-  app.use(urlencoded({ extended: true, limit: '50mb' }));
+  app.use(urlencoded({ extended: true, limit: '100mb' }));
 
   // Enable CORS
-app.enableCors({
-  origin: true, // Cho phép mọi cổng (62015, 65190, v.v.) gọi tới
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-  credentials: true,
-});
+  app.enableCors({
+    origin: true,
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    credentials: true,
+  });
 
   // Global validation pipe
   app.useGlobalPipes(
