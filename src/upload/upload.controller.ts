@@ -10,10 +10,10 @@ export class UploadController {
   @Get('presigned-url')
   async getPresignedUrl(
     @Query('fileName') fileName: string,
-    @Query('contentType') contentType: string,
+    @Query('contentType') contentType?: string,
   ) {
-    if (!fileName || !contentType) {
-      throw new BadRequestException('Thiếu fileName hoặc contentType');
+    if (!fileName) {
+      throw new BadRequestException('Thiếu fileName');
     }
 
     // Gọi service để lấy URL tạm thời (PUT) và URL truy cập file sau khi upload (GET)
