@@ -9,11 +9,7 @@ import {
   Delete,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-} from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -94,10 +90,7 @@ export class UsersController {
 
   @Patch(':userId/avatar')
   @ApiOperation({ summary: 'Cập nhật avatar sau khi upload thành công' })
-  updateAvatar(
-    @Param('userId') userId: string,
-    @Body() dto: UpdateAvatarDto,
-  ) {
+  updateAvatar(@Param('userId') userId: string, @Body() dto: UpdateAvatarDto) {
     return this.usersService.updateAvatar(userId, dto);
   }
 

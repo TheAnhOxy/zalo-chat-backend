@@ -4,7 +4,10 @@ import { SeedService } from './seed.service';
 import { SeedController } from './seed.controller';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { Session, SessionSchema } from '../sessions/schemas/session.schema';
-import { Friendship, FriendshipSchema } from '../friendships/schemas/friendship.schema';
+import {
+  Friendship,
+  FriendshipSchema,
+} from '../friendships/schemas/friendship.schema';
 import {
   Conversation,
   ConversationSchema,

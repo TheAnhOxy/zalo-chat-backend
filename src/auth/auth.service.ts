@@ -54,7 +54,8 @@ export class AuthService {
 
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
-    @InjectModel(Session.name) private readonly sessionModel: Model<SessionDocument>,
+    @InjectModel(Session.name)
+    private readonly sessionModel: Model<SessionDocument>,
     @InjectModel(OtpSession.name)
     private readonly otpSessionModel: Model<OtpSessionDocument>,
     private readonly configService: ConfigService,
@@ -155,7 +156,12 @@ export class AuthService {
     otpSession.usedAt = new Date();
     await otpSession.save();
 
-    const tokens = await this.issueTokensAndSession(user, SessionDevice.WEB, 'Register Device', '0.0.0.0');
+    const tokens = await this.issueTokensAndSession(
+      user,
+      SessionDevice.WEB,
+      'Register Device',
+      '0.0.0.0',
+    );
 
     return ok('Register verified', {
       user: this.toAuthUser(user),
@@ -389,10 +395,18 @@ export class AuthService {
 
     const user = await this.userModel.findById(session.userId).exec();
     if (!user) {
-      throwAppError(HttpStatus.NOT_FOUND, 'USER_NOT_FOUND', 'Khong tim thay user');
+      throwAppError(
+        HttpStatus.NOT_FOUND,
+        'USER_NOT_FOUND',
+        'Khong tim thay user',
+      );
     }
 
-    const tokens = this.generateTokenPair(user._id.toString(), user.email, user.phone);
+    const tokens = this.generateTokenPair(
+      user._id.toString(),
+      user.email,
+      user.phone,
+    );
 
     session.refreshToken = tokens.refreshToken;
     session.expiredAt = this.getRefreshExpiredAt();
@@ -432,7 +446,11 @@ export class AuthService {
     }
 
     if (!Types.ObjectId.isValid(userId)) {
-      throwAppError(HttpStatus.NOT_FOUND, 'USER_NOT_FOUND', 'Khong tim thay user');
+      throwAppError(
+        HttpStatus.NOT_FOUND,
+        'USER_NOT_FOUND',
+        'Khong tim thay user',
+      );
     }
 
     await this.sessionModel.updateMany(
@@ -445,7 +463,11 @@ export class AuthService {
 
   async listSessions(userId: string) {
     if (!Types.ObjectId.isValid(userId)) {
-      throwAppError(HttpStatus.NOT_FOUND, 'USER_NOT_FOUND', 'Khong tim thay user');
+      throwAppError(
+        HttpStatus.NOT_FOUND,
+        'USER_NOT_FOUND',
+        'Khong tim thay user',
+      );
     }
 
     const sessions = await this.sessionModel
@@ -459,7 +481,11 @@ export class AuthService {
 
   async changePassword(dto: ChangePasswordDto) {
     if (!Types.ObjectId.isValid(dto.userId)) {
-      throwAppError(HttpStatus.NOT_FOUND, 'USER_NOT_FOUND', 'Khong tim thay user');
+      throwAppError(
+        HttpStatus.NOT_FOUND,
+        'USER_NOT_FOUND',
+        'Khong tim thay user',
+      );
     }
     if (!isStrongPassword(dto.newPassword)) {
       throwAppError(
@@ -475,7 +501,11 @@ export class AuthService {
       .exec();
 
     if (!user) {
-      throwAppError(HttpStatus.NOT_FOUND, 'USER_NOT_FOUND', 'Khong tim thay user');
+      throwAppError(
+        HttpStatus.NOT_FOUND,
+        'USER_NOT_FOUND',
+        'Khong tim thay user',
+      );
     }
 
     const isOldMatched = await bcrypt.compare(dto.oldPassword, user.password);
@@ -569,7 +599,11 @@ export class AuthService {
     const userId = String(otpSession.payload.userId || '');
     const user = await this.userModel.findById(userId).exec();
     if (!user) {
-      throwAppError(HttpStatus.NOT_FOUND, 'USER_NOT_FOUND', 'Khong tim thay user');
+      throwAppError(
+        HttpStatus.NOT_FOUND,
+        'USER_NOT_FOUND',
+        'Khong tim thay user',
+      );
     }
 
     user.status = { isOnline: true, lastSeen: new Date() } as User['status'];
@@ -704,7 +738,9 @@ export class AuthService {
     }
   }
 
-  private async findOtpSessionOrThrow(sessionId: string): Promise<OtpSessionDocument> {
+  private async findOtpSessionOrThrow(
+    sessionId: string,
+  ): Promise<OtpSessionDocument> {
     const doc = await this.otpSessionModel
       .findOne({ sessionId })
       .select('+otpHash')
@@ -759,7 +795,8 @@ export class AuthService {
     const accessToken = this.jwtService.sign(
       { sub: userId, email, phone, type: 'access' },
       {
-        secret: this.configService.get<string>('JWT_ACCESS_SECRET') ||
+        secret:
+          this.configService.get<string>('JWT_ACCESS_SECRET') ||
           this.configService.get<string>('JWT_SECRET') ||
           'dev_access_secret',
         expiresIn: this.parseSeconds(this.accessExpiresIn),
@@ -769,14 +806,17 @@ export class AuthService {
     const refreshToken = this.jwtService.sign(
       { sub: userId, email, phone, type: 'refresh' },
       {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET') ||
+        secret:
+          this.configService.get<string>('JWT_REFRESH_SECRET') ||
           this.configService.get<string>('JWT_SECRET') ||
           'dev_refresh_secret',
         expiresIn: this.refreshExpiresDays * 24 * 60 * 60,
       },
     );
 
-    const accessExpiredAt = new Date(Date.now() + this.parseMs(this.accessExpiresIn));
+    const accessExpiredAt = new Date(
+      Date.now() + this.parseMs(this.accessExpiresIn),
+    );
 
     return {
       accessToken,
@@ -838,7 +878,8 @@ export class AuthService {
   private parseMs(input: string): number {
     if (input.endsWith('m')) return Number(input.slice(0, -1)) * 60 * 1000;
     if (input.endsWith('h')) return Number(input.slice(0, -1)) * 60 * 60 * 1000;
-    if (input.endsWith('d')) return Number(input.slice(0, -1)) * 24 * 60 * 60 * 1000;
+    if (input.endsWith('d'))
+      return Number(input.slice(0, -1)) * 24 * 60 * 60 * 1000;
     const n = Number(input);
     return Number.isFinite(n) && n > 0 ? n * 1000 : 15 * 60 * 1000;
   }
@@ -929,7 +970,8 @@ export class AuthService {
     // In production, remove this endpoint
     return ok('OTP fetched for dev', {
       sessionId,
-      message: 'OTP already sent to email. Check server console or email client. This endpoint is DEV ONLY!',
+      message:
+        'OTP already sent to email. Check server console or email client. This endpoint is DEV ONLY!',
       email: otpSession.email,
       phone: otpSession.phone,
       purpose: otpSession.purpose,

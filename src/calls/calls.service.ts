@@ -8,9 +8,7 @@ import { toPlainDoc } from '../common/mongo-plain';
 
 @Injectable()
 export class CallsService {
-  constructor(
-    @InjectModel(Call.name) private callModel: Model<CallDocument>,
-  ) {}
+  constructor(@InjectModel(Call.name) private callModel: Model<CallDocument>) {}
 
   async create(dto: CreateCallDto): Promise<Record<string, unknown>> {
     const doc = new this.callModel({
@@ -29,7 +27,11 @@ export class CallsService {
   }
 
   async findAll(): Promise<Record<string, unknown>[]> {
-    const list = await this.callModel.find().sort({ createdAt: -1 }).lean().exec();
+    const list = await this.callModel
+      .find()
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
     return list as Record<string, unknown>[];
   }
 
@@ -89,7 +91,10 @@ export class CallsService {
     return list as Record<string, unknown>[];
   }
 
-  async update(id: string, dto: UpdateCallDto): Promise<Record<string, unknown>> {
+  async update(
+    id: string,
+    dto: UpdateCallDto,
+  ): Promise<Record<string, unknown>> {
     const doc = await this.callModel.findById(id);
     if (!doc) {
       throw new NotFoundException('Không tìm thấy call');

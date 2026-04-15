@@ -20,12 +20,16 @@ import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 import { AvatarPresignDto } from './dto/avatar-presign.dto';
 import { UpdateAvatarDto } from './dto/update-avatar.dto';
 import { UpdateCoverImageDto } from './dto/update-cover-image.dto';
+import { FriendshipsService } from '../friendships/friendships.service';
+import { BlocksService } from '../blocks/blocks.service';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     private readonly configService: ConfigService,
+    private readonly friendshipsService: FriendshipsService,
+    private readonly blocksService: BlocksService,
   ) {}
 
   async create(dto: CreateUserDto): Promise<Record<string, unknown>> {
@@ -165,7 +169,9 @@ export class UsersService {
     const region = this.configService.get<string>('S3_REGION');
     const bucket = this.configService.get<string>('S3_BUCKET_NAME');
     const accessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
-    const secretAccessKey = this.configService.get<string>('AWS_SECRET_ACCESS_KEY');
+    const secretAccessKey = this.configService.get<string>(
+      'AWS_SECRET_ACCESS_KEY',
+    );
 
     if (!region || !bucket || !accessKeyId || !secretAccessKey) {
       throw new InternalServerErrorException(
@@ -251,15 +257,7 @@ export class UsersService {
       throw new NotFoundException('Không tìm thấy người dùng');
     }
 
-    const {
-      status,
-      privacy,
-      settings,
-      dob,
-      email,
-      fcmTokens,
-      ...scalar
-    } = dto;
+    const { status, privacy, settings, dob, email, fcmTokens, ...scalar } = dto;
 
     Object.assign(doc, scalar);
     if (email !== undefined) doc.email = email.toLowerCase();
@@ -282,7 +280,10 @@ export class UsersService {
     return this.toPublic(doc);
   }
 
-  async addFcmToken(userId: string, token: string): Promise<Record<string, unknown>> {
+  async addFcmToken(
+    userId: string,
+    token: string,
+  ): Promise<Record<string, unknown>> {
     await this.userModel.findByIdAndUpdate(userId, {
       $addToSet: { fcmTokens: token },
     });
@@ -306,25 +307,30 @@ export class UsersService {
     }
   }
   async getActiveFriends(userId: string) {
-  // 1. Tìm danh sách bạn bè của user này (giả sử bạn có bảng friendships)
-  // 2. Lọc những người có status.isOnline = true
-  // 3. Kiểm tra privacy.showOnline = true (Rất quan trọng vì Schema của bạn có trường này)
-  
-  return await this.userModel.find({
-    'status.isOnline': true,
-    'privacy.showOnline': true,
-    isBlocked: false,
-    // Thêm điều kiện thuộc danh sách bạn bè ở đây
-  }).select('fullName avatar status');
-}
+    // 1. Tìm danh sách bạn bè của user này (giả sử bạn có bảng friendships)
+    // 2. Lọc những người có status.isOnline = true
+    // 3. Kiểm tra privacy.showOnline = true (Rất quan trọng vì Schema của bạn có trường này)
+
+    return await this.userModel
+      .find({
+        'status.isOnline': true,
+        'privacy.showOnline': true,
+        isBlocked: false,
+        // Thêm điều kiện thuộc danh sách bạn bè ở đây
+      })
+      .select('fullName avatar status');
+  }
   // src/users/users.service.ts
-  async updateStatus2(userId: string, statusData: { isOnline: boolean; lastSeen: Date }) {
-   return await this.userModel.findByIdAndUpdate(
+  async updateStatus2(
+    userId: string,
+    statusData: { isOnline: boolean; lastSeen: Date },
+  ) {
+    return await this.userModel.findByIdAndUpdate(
       userId,
       {
-       $set: {
-        'status.isOnline': statusData.isOnline,
-        'status.lastSeen': statusData.lastSeen,
+        $set: {
+          'status.isOnline': statusData.isOnline,
+          'status.lastSeen': statusData.lastSeen,
         },
       },
       { new: true },
@@ -348,5 +354,57 @@ export class UsersService {
     const o = doc.toObject({ virtuals: true });
     const { password: _pwd, ...rest } = o;
     return rest as Record<string, unknown>;
+  }
+
+  async getMutualFriends(
+    meId: string,
+    otherId: string,
+    params: { limit?: number; cursor?: string },
+  ): Promise<Record<string, unknown>> {
+    if (
+      !Types.ObjectId.isValid(meId) ||
+      !Types.ObjectId.isValid(otherId) ||
+      meId === otherId
+    ) {
+      return { items: [], nextCursor: null };
+    }
+
+    if (await this.blocksService.isBlockedEitherWay(meId, otherId)) {
+      return { items: [], nextCursor: null };
+    }
+
+    const [myFriends, otherFriends] = await Promise.all([
+      this.friendshipsService.listFriendIds(meId),
+      this.friendshipsService.listFriendIds(otherId),
+    ]);
+
+    const set = new Set(myFriends);
+    const mutual = otherFriends.filter((id) => set.has(id));
+    const blocked = new Set(
+      await this.blocksService.listBlockedUserIdsEitherWay(meId),
+    );
+    const filtered = mutual.filter(
+      (id) => id !== meId && id !== otherId && !blocked.has(id),
+    );
+
+    const limit = Math.min(Math.max(params.limit || 20, 1), 50);
+    const start = params.cursor ? Number(params.cursor) : 0;
+    const pageIds = filtered.slice(start, start + limit);
+    const nextCursor =
+      start + limit < filtered.length ? String(start + limit) : null;
+
+    const users = await this.userModel
+      .find({ _id: { $in: pageIds.map((x) => new Types.ObjectId(x)) } })
+      .select('fullName avatar status')
+      .lean()
+      .exec();
+
+    // Preserve order
+    const map = new Map(
+      users.map((u) => [String((u as { _id: Types.ObjectId })._id), u]),
+    );
+    const items = pageIds.map((id) => map.get(id)).filter(Boolean);
+
+    return { items: items as Record<string, unknown>[], nextCursor };
   }
 }

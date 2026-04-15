@@ -18,7 +18,7 @@ import { UsePipes, ValidationPipe, Logger } from '@nestjs/common';
 
 @WebSocketGateway({
   cors: {
-    origin: '*', 
+    origin: '*',
     credentials: true,
   },
   transports: ['websocket'],
@@ -51,7 +51,7 @@ export class MessagesGateway
     if (userId) {
       client.join(userId);
       this.activeUsers.set(userId, client.id);
-      
+
       // Cập nhật trạng thái vào lồng object 'status' theo Schema của bạn
       await this.usersService.updateStatus2(userId, {
         isOnline: true,
@@ -59,11 +59,11 @@ export class MessagesGateway
       });
 
       // Phát sự kiện cho toàn bộ hệ thống để hiện chấm xanh
-      this.server.emit('user_status_changed', { 
-        userId, 
-        isOnline: true 
+      this.server.emit('user_status_changed', {
+        userId,
+        isOnline: true,
       });
-      
+
       this.logger.log(`User ${userId} is online`);
     }
   }
@@ -100,12 +100,12 @@ export class MessagesGateway
       });
 
       // Thông báo cho mọi người để tắt chấm xanh và hiện "Ngoại tuyến"
-      this.server.emit('user_status_changed', { 
-        userId: disconnectedUserId, 
+      this.server.emit('user_status_changed', {
+        userId: disconnectedUserId,
         isOnline: false,
-        lastSeen: now
+        lastSeen: now,
       });
-      
+
       this.logger.log(`User ${disconnectedUserId} is offline`);
     }
   }
@@ -150,14 +150,25 @@ export class MessagesGateway
 
   @SubscribeMessage('typing')
   handleTyping(
-    @MessageBody() data: { conversationId: string; userId: string; isTyping: boolean },
+    @MessageBody()
+    data: {
+      conversationId: string;
+      userId: string;
+      isTyping: boolean;
+    },
   ) {
     this.server.to(data.conversationId).emit('user_typing', data);
   }
 
   @SubscribeMessage('add_reaction')
   async handleReaction(
-    @MessageBody() data: { messageId: string; userId: string; type: ReactionType; conversationId: string },
+    @MessageBody()
+    data: {
+      messageId: string;
+      userId: string;
+      type: ReactionType;
+      conversationId: string;
+    },
   ) {
     const updatedMsg = await this.messagesService.upsertReaction(
       data.messageId,
@@ -211,11 +222,16 @@ export class MessagesGateway
         this.logger.error('seen_conversation error: ' + String(e));
       }
     }
-}
+  }
 
   @SubscribeMessage('edit_message')
   async handleEditMessage(
-    @MessageBody() data: { messageId: string; content: string; conversationId: string },
+    @MessageBody()
+    data: {
+      messageId: string;
+      content: string;
+      conversationId: string;
+    },
   ) {
     const updatedMsg = await this.messagesService.update(data.messageId, {
       content: data.content,
@@ -229,7 +245,10 @@ export class MessagesGateway
     @MessageBody() data: { messageId: string; userId: string },
     @ConnectedSocket() client: Socket,
   ) {
-    const updatedMsg = await this.messagesService.addDeletedBy(data.messageId, data.userId);
+    const updatedMsg = await this.messagesService.addDeletedBy(
+      data.messageId,
+      data.userId,
+    );
     client.emit('message_deleted_local', { messageId: data.messageId });
     return updatedMsg;
   }

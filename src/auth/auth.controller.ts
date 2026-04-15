@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -28,7 +37,9 @@ export class AuthController {
 
   @Post('verify-register-otp')
   @ApiOperation({ summary: 'Verify OTP register and create account' })
-  verifyRegisterOtp(@Body() dto: VerifyOtpDto): Promise<Record<string, unknown>> {
+  verifyRegisterOtp(
+    @Body() dto: VerifyOtpDto,
+  ): Promise<Record<string, unknown>> {
     return this.authService.verifyRegisterOtp(dto).then((x) => x.body);
   }
 
@@ -54,7 +65,9 @@ export class AuthController {
   @Post('forgot-password/verify-otp')
   @HttpCode(200)
   @ApiOperation({ summary: 'Verify OTP and reset password' })
-  forgotPasswordVerifyOtp(@Body() dto: VerifyOtpDto): Promise<Record<string, unknown>> {
+  forgotPasswordVerifyOtp(
+    @Body() dto: VerifyOtpDto,
+  ): Promise<Record<string, unknown>> {
     return this.authService.verifyForgotPasswordOtp(dto).then((x) => x.body);
   }
 
@@ -88,14 +101,18 @@ export class AuthController {
 
   @Get('sessions/:userId')
   @ApiOperation({ summary: 'List sessions of a user' })
-  listSessions(@Param('userId') userId: string): Promise<Record<string, unknown>> {
+  listSessions(
+    @Param('userId') userId: string,
+  ): Promise<Record<string, unknown>> {
     return this.authService.listSessions(userId).then((x) => x.body);
   }
 
   @Post('change-password')
   @HttpCode(200)
   @ApiOperation({ summary: 'Change password and revoke all sessions' })
-  changePassword(@Body() dto: ChangePasswordDto): Promise<Record<string, unknown>> {
+  changePassword(
+    @Body() dto: ChangePasswordDto,
+  ): Promise<Record<string, unknown>> {
     return this.authService.changePassword(dto).then((x) => x.body);
   }
 
@@ -127,7 +144,9 @@ export class AuthController {
     @Body() dto: GoogleLoginDto,
     @Req() req: Request,
   ): Promise<Record<string, unknown>> {
-    return this.authService.googleLogin(dto, this.extractIp(req)).then((x) => x.body);
+    return this.authService
+      .googleLogin(dto, this.extractIp(req))
+      .then((x) => x.body);
   }
 
   /**
@@ -135,9 +154,15 @@ export class AuthController {
    * Call this to retrieve OTP for a sessionId without needing email
    */
   @Get('dev/otp/:sessionId')
-  @ApiOperation({ summary: '[DEV] Get OTP from session - remove in production!' })
-  async getOtpForDev(@Param('sessionId') sessionId: string): Promise<Record<string, unknown>> {
-    return this.authService.getOtpForDev(sessionId).then((x) => x.body as Record<string, unknown>);
+  @ApiOperation({
+    summary: '[DEV] Get OTP from session - remove in production!',
+  })
+  async getOtpForDev(
+    @Param('sessionId') sessionId: string,
+  ): Promise<Record<string, unknown>> {
+    return this.authService
+      .getOtpForDev(sessionId)
+      .then((x) => x.body as Record<string, unknown>);
   }
 
   private extractIp(req: Request): string {

@@ -1,4 +1,10 @@
-import { Controller, Get, Query, UseGuards, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+  BadRequestException,
+} from '@nestjs/common';
 import { UploadService } from './upload.service';
 // import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -6,7 +12,7 @@ import { UploadService } from './upload.service';
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
 
-//   @UseGuards(JwtAuthGuard) // Chỉ cho phép user đã đăng nhập lấy URL upload
+  //   @UseGuards(JwtAuthGuard) // Chỉ cho phép user đã đăng nhập lấy URL upload
   @Get('presigned-url')
   async getPresignedUrl(
     @Query('fileName') fileName: string,

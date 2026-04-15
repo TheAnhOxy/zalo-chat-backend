@@ -38,7 +38,11 @@ import {
   NotificationDocument,
   NotificationType,
 } from '../notifications/schemas/notification.schema';
-import { Story, StoryDocument, StoryMediaType } from '../stories/schemas/story.schema';
+import {
+  Story,
+  StoryDocument,
+  StoryMediaType,
+} from '../stories/schemas/story.schema';
 import {
   Report,
   ReportDocument,
@@ -111,7 +115,9 @@ export class SeedService {
       isBlocked: false,
     });
 
-    console.log(`✅ users: 3 (${u1.email}, ${u2.email}, ${u3.email}) — mật khẩu: 123456`);
+    console.log(
+      `✅ users: 3 (${u1.email}, ${u2.email}, ${u3.email}) — mật khẩu: 123456`,
+    );
 
     await this.sessionModel.create({
       userId: u1._id,

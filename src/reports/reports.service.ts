@@ -63,7 +63,10 @@ export class ReportsService {
     return row as Record<string, unknown>;
   }
 
-  async update(id: string, dto: UpdateReportDto): Promise<Record<string, unknown>> {
+  async update(
+    id: string,
+    dto: UpdateReportDto,
+  ): Promise<Record<string, unknown>> {
     const doc = await this.reportModel.findById(id);
     if (!doc) {
       throw new NotFoundException('Không tìm thấy report');

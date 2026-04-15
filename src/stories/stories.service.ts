@@ -74,7 +74,10 @@ export class StoriesService {
     return list as Record<string, unknown>[];
   }
 
-  async update(id: string, dto: UpdateStoryDto): Promise<Record<string, unknown>> {
+  async update(
+    id: string,
+    dto: UpdateStoryDto,
+  ): Promise<Record<string, unknown>> {
     const doc = await this.storyModel.findById(id);
     if (!doc) {
       throw new NotFoundException('Không tìm thấy story');
@@ -92,7 +95,10 @@ export class StoriesService {
     return toPlainDoc(doc);
   }
 
-  async addViewer(storyId: string, viewerId: string): Promise<Record<string, unknown>> {
+  async addViewer(
+    storyId: string,
+    viewerId: string,
+  ): Promise<Record<string, unknown>> {
     if (!Types.ObjectId.isValid(storyId) || !Types.ObjectId.isValid(viewerId)) {
       throw new NotFoundException('Không tìm thấy story');
     }

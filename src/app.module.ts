@@ -16,6 +16,9 @@ import { SeedModule } from './seed/seed.module';
 import { getMongoConfig } from './config/mongo.config';
 import { UploadModule } from './upload/upload.module';
 import { AuthModule } from './auth/auth.module';
+import { BlocksModule } from './blocks/blocks.module';
+import { SearchModule } from './search/search.module';
+import { SuggestedModule } from './suggested/suggested.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -30,6 +33,7 @@ import { AuthModule } from './auth/auth.module';
     UsersModule,
     SessionsModule,
     FriendshipsModule,
+    BlocksModule,
     ConversationsModule,
     MessagesModule,
     CallsModule,
@@ -39,6 +43,8 @@ import { AuthModule } from './auth/auth.module';
     SeedModule,
     UploadModule,
     AuthModule,
+    SearchModule,
+    SuggestedModule,
   ],
   controllers: [AppController],
   providers: [AppService],

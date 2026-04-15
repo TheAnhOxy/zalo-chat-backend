@@ -103,7 +103,9 @@ export class NotificationsService {
     return this.update(id, { isRead: true });
   }
 
-  async markAllReadForReceiver(receiverId: string): Promise<{ modified: number }> {
+  async markAllReadForReceiver(
+    receiverId: string,
+  ): Promise<{ modified: number }> {
     if (!Types.ObjectId.isValid(receiverId)) {
       return { modified: 0 };
     }
@@ -133,9 +135,7 @@ export class NotificationsService {
 
   private mergeData(target: NotificationData, dto: NotificationDataDto): void {
     if (dto.senderId !== undefined) {
-      target.senderId = dto.senderId
-        ? new Types.ObjectId(dto.senderId)
-        : null;
+      target.senderId = dto.senderId ? new Types.ObjectId(dto.senderId) : null;
     }
     if (dto.conversationId !== undefined) {
       target.conversationId = dto.conversationId

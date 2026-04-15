@@ -12,7 +12,9 @@ export class GoogleLoginDto {
   @ApiPropertyOptional({ enum: SessionDevice, default: SessionDevice.WEB })
   @IsOptional()
   @IsEnum(SessionDevice)
-  @Transform(({ value }) => (typeof value === 'string' ? value.toLowerCase() : value))
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.toLowerCase() : value,
+  )
   device?: SessionDevice;
 
   @ApiPropertyOptional({ example: 'Chrome Windows' })

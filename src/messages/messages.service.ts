@@ -30,7 +30,7 @@ export class MessagesService {
     this.logger.debug(`TYPE RECEIVED: "${dto.type}"`);
 
     const cleanType = (dto.type as string)?.trim();
-    
+
     const messageData = {
       conversationId: new Types.ObjectId(dto.conversationId),
       senderId: new Types.ObjectId(dto.senderId),
@@ -43,7 +43,7 @@ export class MessagesService {
       deletedBy: (dto.deletedBy ?? []).map((id) => new Types.ObjectId(id)),
       reactions: (dto.reactions ?? []).map((r) => ({
         userId: new Types.ObjectId(r.userId),
-        reactionType: r.type, 
+        reactionType: r.type,
       })),
       seenBy: (dto.seenBy ?? []).map((s) => ({
         userId: new Types.ObjectId(s.userId),
@@ -125,13 +125,17 @@ export class MessagesService {
   }
 
   // ================= UPDATE =================
-  async update(id: string, dto: UpdateMessageDto): Promise<Record<string, unknown>> {
+  async update(
+    id: string,
+    dto: UpdateMessageDto,
+  ): Promise<Record<string, unknown>> {
     const doc = await this.messageModel.findById(id);
     if (!doc) throw new NotFoundException('Không tìm thấy tin nhắn');
 
     if (dto.type !== undefined) (doc as any).messageType = dto.type;
     if (dto.content !== undefined) doc.content = dto.content;
-    if (dto.metadata !== undefined) this.mergeMetadata(doc.metadata, dto.metadata);
+    if (dto.metadata !== undefined)
+      this.mergeMetadata(doc.metadata, dto.metadata);
     if (dto.replyTo !== undefined) {
       doc.replyTo = dto.replyTo ? new Types.ObjectId(dto.replyTo) : null;
     }
@@ -163,7 +167,10 @@ export class MessagesService {
     if (!res) throw new NotFoundException('Không tìm thấy tin nhắn');
   }
 
-  async addDeletedBy(messageId: string, userId: string): Promise<Record<string, unknown>> {
+  async addDeletedBy(
+    messageId: string,
+    userId: string,
+  ): Promise<Record<string, unknown>> {
     if (!Types.ObjectId.isValid(messageId) || !Types.ObjectId.isValid(userId)) {
       throw new NotFoundException('ID không hợp lệ');
     }
@@ -176,11 +183,18 @@ export class MessagesService {
     return toPlainDoc(doc);
   }
 
-  async upsertReaction(messageId: string, userId: string, type: ReactionType): Promise<Record<string, unknown>> {
+  async upsertReaction(
+    messageId: string,
+    userId: string,
+    type: ReactionType,
+  ): Promise<Record<string, unknown>> {
     const uid = new Types.ObjectId(userId);
     const mid = new Types.ObjectId(messageId);
 
-    await this.messageModel.updateOne({ _id: mid }, { $pull: { reactions: { userId: uid } } });
+    await this.messageModel.updateOne(
+      { _id: mid },
+      { $pull: { reactions: { userId: uid } } },
+    );
 
     const doc = await this.messageModel.findByIdAndUpdate(
       mid,
@@ -191,12 +205,19 @@ export class MessagesService {
     return toPlainDoc(doc);
   }
 
-  async addSeenBy(messageId: string, userId: string, seenAt?: Date): Promise<Record<string, unknown>> {
+  async addSeenBy(
+    messageId: string,
+    userId: string,
+    seenAt?: Date,
+  ): Promise<Record<string, unknown>> {
     const uid = new Types.ObjectId(userId);
     const mid = new Types.ObjectId(messageId);
     const at = seenAt ?? new Date();
 
-    await this.messageModel.updateOne({ _id: mid }, { $pull: { seenBy: { userId: uid } } });
+    await this.messageModel.updateOne(
+      { _id: mid },
+      { $pull: { seenBy: { userId: uid } } },
+    );
 
     const doc = await this.messageModel.findByIdAndUpdate(
       mid,
@@ -219,7 +240,10 @@ export class MessagesService {
     };
   }
 
-  private mergeMetadata(target: MessageMetadata, dto: MessageMetadataDto): void {
+  private mergeMetadata(
+    target: MessageMetadata,
+    dto: MessageMetadataDto,
+  ): void {
     if (dto.fileName !== undefined) target.fileName = dto.fileName;
     if (dto.fileSize !== undefined) target.fileSize = dto.fileSize;
     if (dto.thumbnail !== undefined) target.thumbnail = dto.thumbnail;

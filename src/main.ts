@@ -7,7 +7,6 @@ import { json, text, urlencoded } from 'express';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-
   // Increase payload size for file uploads
   app.use(json({ limit: '50mb' }));
   app.use(text({ type: 'text/plain', limit: '50mb' }));
@@ -35,11 +34,11 @@ async function bootstrap() {
   app.use(urlencoded({ extended: true, limit: '50mb' }));
 
   // Enable CORS
-app.enableCors({
-  origin: true, // Cho phép mọi cổng (62015, 65190, v.v.) gọi tới
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-  credentials: true,
-});
+  app.enableCors({
+    origin: true, // Cho phép mọi cổng (62015, 65190, v.v.) gọi tới
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    credentials: true,
+  });
 
   // Global validation pipe
   app.useGlobalPipes(
@@ -50,7 +49,9 @@ app.enableCors({
       exceptionFactory: (errors) => {
         const details = errors.map((e) => ({
           field: e.property,
-          messages: e.constraints ? Object.values(e.constraints) : ['Invalid value'],
+          messages: e.constraints
+            ? Object.values(e.constraints)
+            : ['Invalid value'],
         }));
 
         return new BadRequestException({

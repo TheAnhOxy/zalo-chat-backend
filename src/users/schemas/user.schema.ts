@@ -56,7 +56,8 @@ export class UserSettings {
   @Prop({ type: Boolean, default: false })
   twoFactorAuth: boolean;
 }
-export const UserSettingsMongoSchema = SchemaFactory.createForClass(UserSettings);
+export const UserSettingsMongoSchema =
+  SchemaFactory.createForClass(UserSettings);
 
 @Schema({
   collection: 'users',

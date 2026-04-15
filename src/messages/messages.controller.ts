@@ -31,7 +31,11 @@ export class MessagesController {
 
   @Get('conversation/:conversationId')
   @ApiOperation({ summary: 'Tin theo hội thoại (createdAt giảm dần)' })
-  @ApiQuery({ name: 'userId', required: true, description: 'ID người dùng hiện tại để lọc tin nhắn đã xóa' })
+  @ApiQuery({
+    name: 'userId',
+    required: true,
+    description: 'ID người dùng hiện tại để lọc tin nhắn đã xóa',
+  })
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'skip', required: false })
   findByConversation(

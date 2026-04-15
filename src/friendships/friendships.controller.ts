@@ -30,7 +30,9 @@ export class FriendshipsController {
   }
 
   @Get('user/:userId')
-  @ApiOperation({ summary: 'Friendships liên quan user (requester hoặc addressee)' })
+  @ApiOperation({
+    summary: 'Friendships liên quan user (requester hoặc addressee)',
+  })
   findByUser(@Param('userId') userId: string) {
     return this.friendshipsService.findByUserId(userId);
   }

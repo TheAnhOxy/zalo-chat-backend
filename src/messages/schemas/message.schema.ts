@@ -93,9 +93,9 @@ export class Message {
     type: String,
     enum: Object.values(MessageType),
     required: true,
-    alias: 'type', 
+    alias: 'type',
   })
-  messageType: MessageType; 
+  messageType: MessageType;
 
   @Prop({ type: String, default: '' })
   content: string;

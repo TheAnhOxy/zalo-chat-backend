@@ -61,8 +61,7 @@ export class LastMessage {
   @Prop({ type: Date, default: () => new Date() })
   createdAt: Date;
 }
-export const LastMessageMongoSchema =
-  SchemaFactory.createForClass(LastMessage);
+export const LastMessageMongoSchema = SchemaFactory.createForClass(LastMessage);
 
 @Schema({ _id: false })
 export class GroupSettings {

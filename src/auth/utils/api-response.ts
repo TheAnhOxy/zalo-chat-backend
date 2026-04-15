@@ -8,7 +8,11 @@ export interface ErrorBody {
   };
 }
 
-export function ok<T>(message: string, data: T, statusCode = HttpStatus.OK): {
+export function ok<T>(
+  message: string,
+  data: T,
+  statusCode = HttpStatus.OK,
+): {
   statusCode: number;
   body: { success: true; message: string; data: T };
 } {

@@ -26,12 +26,12 @@ export class CreateCallDto {
   participants: string[];
 
   @ApiPropertyOptional()
-@IsOptional()
-callerName?: string;
+  @IsOptional()
+  callerName?: string;
 
-@ApiPropertyOptional()
-@IsOptional()
-callerAvatar?: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  callerAvatar?: string;
 
   @ApiProperty({ enum: CallType })
   @IsEnum(CallType)

@@ -1,9 +1,4 @@
-import {
-  Controller,
-  Post,
-  ForbiddenException,
-  HttpCode,
-} from '@nestjs/common';
+import { Controller, Post, ForbiddenException, HttpCode } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { SeedService } from './seed.service';
@@ -27,8 +22,7 @@ export class SeedController {
   @ApiResponse({ status: 403, description: 'Bị chặn trên production' })
   async run(): Promise<{ ok: true; message: string }> {
     const isProd = this.configService.get<string>('NODE_ENV') === 'production';
-    const allowHttp =
-      this.configService.get<string>('SEED_HTTP') === 'true';
+    const allowHttp = this.configService.get<string>('SEED_HTTP') === 'true';
     if (isProd && !allowHttp) {
       throw new ForbiddenException(
         'Seed qua HTTP bị tắt trên production. Đặt SEED_HTTP=true nếu thật sự cần.',
