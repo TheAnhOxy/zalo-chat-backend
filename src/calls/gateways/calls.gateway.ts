@@ -11,6 +11,7 @@ import { CallsService } from '../calls.service';
 import { CreateCallDto } from '../dto/create-call.dto';
 import { CallStatus } from '../schemas/call.schema';
 import { Logger } from '@nestjs/common';
+import { ConversationsService } from '../../conversations/conversations.service';
 
 @WebSocketGateway({
   cors: { origin: '*' },
@@ -21,7 +22,10 @@ export class CallsGateway implements OnGatewayConnection {
 
   private readonly logger = new Logger(CallsGateway.name);
 
-  constructor(private readonly callsService: CallsService) {}
+  constructor(
+    private readonly callsService: CallsService,
+    private readonly conversationsService: ConversationsService,
+  ) {}
 
   async handleConnection(client: Socket) {
     const userId = client.handshake.query.userId as string;
@@ -48,6 +52,9 @@ export class CallsGateway implements OnGatewayConnection {
     // Lưu bản ghi cuộc gọi vào DB (Trạng thái: CALLING)
     const callRecord = await this.callsService.create(data.callDto);
 
+    client.emit('call_created', {
+      callId: callRecord._id,
+    });
     // // Gửi tín hiệu 'incoming_call' cho tất cả mọi người trong room TRỪ người gọi
     // client.to(data.callDto.conversationId).emit('incoming_call', {
     //   callId: callRecord._id,
@@ -140,15 +147,13 @@ export class CallsGateway implements OnGatewayConnection {
     @MessageBody() data: { callId: string; conversationId: string },
     @ConnectedSocket() client: Socket,
   ) {
-    this.logger.log(`Call ${data.callId} ending`);
-
     const call = await this.callsService.findById(data.callId);
     let finalDuration = 0;
 
     if (call && call.startedAt) {
       const startTime = new Date(call.startedAt as string).getTime();
       const endTime = new Date().getTime();
-      finalDuration = Math.round((endTime - startTime) / 1000); // Tính bằng giây
+      finalDuration = Math.round((endTime - startTime) / 1000);
     }
 
     const updatedCall = await this.callsService.update(data.callId, {
@@ -157,9 +162,32 @@ export class CallsGateway implements OnGatewayConnection {
       endedAt: new Date().toISOString(),
     });
 
-    // Thông báo cho tất cả người còn lại trong room đóng màn hình cuộc gọi
-    client.to(data.conversationId).emit('call_ended', { callId: data.callId });
+    // ✅ Cập nhật lastMessage của conversation
+    const callType =
+      (call?.type as string) === 'VIDEO' ? 'Cuộc gọi video' : 'Cuộc gọi thoại';
+    const durationText =
+      finalDuration > 0
+        ? ` • ${Math.floor(finalDuration / 60)}:${String(finalDuration % 60).padStart(2, '0')}`
+        : '';
 
+    try {
+      await this.conversationsService.update(data.conversationId, {
+        lastMessage: {
+          content: `📞 ${callType}${durationText}`,
+          senderId: call?.callerId?.toString() ?? '',
+          createdAt: new Date().toISOString(),
+        },
+      });
+
+      // Broadcast để cập nhật UI danh sách chat
+      this.server.emit('conversation_updated', {
+        conversationId: data.conversationId,
+      });
+    } catch (err) {
+      this.logger.error('Lỗi cập nhật lastMessage: ');
+    }
+
+    client.to(data.conversationId).emit('call_ended', { callId: data.callId });
     return updatedCall;
   }
 

@@ -13,6 +13,7 @@ import { CreateMessageDto } from './dto/create-message.dto';
 import { UpdateMessageDto } from './dto/update-message.dto';
 import { MessageMetadataDto } from './dto/message-metadata.dto';
 import { toPlainDoc } from '../common/mongo-plain';
+import { ConversationsService } from '../conversations/conversations.service';
 
 @Injectable()
 export class MessagesService {
@@ -20,10 +21,14 @@ export class MessagesService {
 
   constructor(
     @InjectModel(Message.name) private messageModel: Model<MessageDocument>,
+    private conversationsService: ConversationsService,
   ) {}
 
   // ================= CREATE =================
   async create(dto: CreateMessageDto): Promise<Record<string, unknown>> {
+    this.logger.debug('DTO nhận được:', JSON.stringify(dto));
+    this.logger.debug(`TYPE RECEIVED: "${dto.type}"`);
+
     const cleanType = (dto.type as string)?.trim();
     
     const messageData = {
@@ -38,7 +43,7 @@ export class MessagesService {
       deletedBy: (dto.deletedBy ?? []).map((id) => new Types.ObjectId(id)),
       reactions: (dto.reactions ?? []).map((r) => ({
         userId: new Types.ObjectId(r.userId),
-        reactionType: r.type, // Đã đổi tên theo Schema
+        reactionType: r.type, 
       })),
       seenBy: (dto.seenBy ?? []).map((s) => ({
         userId: new Types.ObjectId(s.userId),
@@ -49,7 +54,25 @@ export class MessagesService {
     try {
       const doc = new this.messageModel(messageData);
       const saved = await doc.save();
-      return toPlainDoc(saved);
+      const plainMsg = toPlainDoc(saved);
+
+      this.logger.debug('AFTER SAVE ✅');
+
+      // ==================== CẬP NHẬT lastMessage ====================
+      try {
+        await this.conversationsService.updateLastMessage(dto.conversationId, {
+          messageId: plainMsg._id?.toString() || saved._id.toString(),
+          content: (plainMsg.content as string) ?? '',
+          senderId: dto.senderId,
+          createdAt: new Date().toISOString(),
+        });
+        this.logger.debug(`Đã cập nhật lastMessage cho conversation ${dto.conversationId}`);
+      } catch (updateError: any) {
+        this.logger.warn(`Không cập nhật được lastMessage: ${updateError.message}`);
+        // Không throw để tránh ảnh hưởng việc gửi tin nhắn
+      }
+
+      return plainMsg;
     } catch (error) {
       this.logger.error('❌ SAVE ERROR: ' + error.message);
       throw error;
@@ -154,7 +177,6 @@ export class MessagesService {
     const uid = new Types.ObjectId(userId);
     const mid = new Types.ObjectId(messageId);
 
-    // Xóa reaction cũ của user này trước khi thêm mới
     await this.messageModel.updateOne({ _id: mid }, { $pull: { reactions: { userId: uid } } });
 
     const doc = await this.messageModel.findByIdAndUpdate(
