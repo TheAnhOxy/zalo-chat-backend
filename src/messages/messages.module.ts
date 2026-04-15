@@ -4,15 +4,17 @@ import { Message, MessageSchema } from './schemas/message.schema';
 import { MessagesService } from './messages.service';
 import { MessagesController } from './messages.controller';
 import { MessagesGateway } from './gateways/messages.gateway';
-import { ConversationsModule } from '../conversations/conversations.module'; // ← Thêm dòng này
+import { UsersModule } from 'src/users/users.module'; 
+import { ConversationsModule } from '../conversations/conversations.module'; 
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: Message.name, schema: MessageSchema }]),
-    ConversationsModule,                    // ← Thêm dòng này
+    UsersModule,           // Giữ lại để MessagesGateway xử lý được join_user_room và online status
+    ConversationsModule,   // Giữ lại để xử lý các logic liên quan đến hội thoại
   ],
   controllers: [MessagesController],
   providers: [MessagesService, MessagesGateway],
-  exports: [MessagesService],
+  exports: [MessagesService, MongooseModule],
 })
 export class MessagesModule {}

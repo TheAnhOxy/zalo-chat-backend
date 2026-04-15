@@ -146,6 +146,31 @@ export class UsersService {
       throw new NotFoundException('Không tìm thấy người dùng');
     }
   }
+  async getActiveFriends(userId: string) {
+  // 1. Tìm danh sách bạn bè của user này (giả sử bạn có bảng friendships)
+  // 2. Lọc những người có status.isOnline = true
+  // 3. Kiểm tra privacy.showOnline = true (Rất quan trọng vì Schema của bạn có trường này)
+  
+  return await this.userModel.find({
+    'status.isOnline': true,
+    'privacy.showOnline': true,
+    isBlocked: false,
+    // Thêm điều kiện thuộc danh sách bạn bè ở đây
+  }).select('fullName avatar status');
+}
+  // src/users/users.service.ts
+  async updateStatus(userId: string, statusData: { isOnline: boolean; lastSeen: Date }) {
+   return await this.userModel.findByIdAndUpdate(
+      userId,
+      {
+       $set: {
+        'status.isOnline': statusData.isOnline,
+        'status.lastSeen': statusData.lastSeen,
+        },
+      },
+      { new: true },
+    );
+  }
 
   private toPublic(doc: UserDocument): Record<string, unknown> {
     const o = doc.toObject({ virtuals: true });
