@@ -25,7 +25,7 @@ export class MessagesService {
   ) {}
 
   // ================= CREATE =================
-async create(dto: CreateMessageDto): Promise<Record<string, unknown>> {
+  async create(dto: CreateMessageDto): Promise<Record<string, unknown>> {
     this.logger.debug('DTO nhận được:', JSON.stringify(dto));
     this.logger.debug(`TYPE RECEIVED: "${dto.type}"`);
 
@@ -69,13 +69,17 @@ async create(dto: CreateMessageDto): Promise<Record<string, unknown>> {
       try {
         await this.conversationsService.updateLastMessage(dto.conversationId, {
           messageId: plainMsg._id?.toString() || saved._id.toString(),
-          content: (plainMsg.content as string) ?? '',           // ← Ép kiểu + fallback
+          content: (plainMsg.content as string) ?? '', // ← Ép kiểu + fallback
           senderId: dto.senderId,
           createdAt: new Date().toISOString(),
         });
-        this.logger.debug(`Đã cập nhật lastMessage cho conversation ${dto.conversationId}`);
+        this.logger.debug(
+          `Đã cập nhật lastMessage cho conversation ${dto.conversationId}`,
+        );
       } catch (updateError: any) {
-        this.logger.warn(`Không cập nhật được lastMessage: ${updateError.message}`);
+        this.logger.warn(
+          `Không cập nhật được lastMessage: ${updateError.message}`,
+        );
         // Không throw để tránh ảnh hưởng việc gửi tin nhắn
       }
 
@@ -139,9 +143,7 @@ async create(dto: CreateMessageDto): Promise<Record<string, unknown>> {
     }
 
     if (dto.replyTo !== undefined) {
-      doc.replyTo = dto.replyTo
-        ? new Types.ObjectId(dto.replyTo)
-        : null;
+      doc.replyTo = dto.replyTo ? new Types.ObjectId(dto.replyTo) : null;
     }
 
     if (dto.status !== undefined) doc.status = dto.status;
@@ -286,5 +288,49 @@ async create(dto: CreateMessageDto): Promise<Record<string, unknown>> {
     if (dto.lat !== undefined) target.lat = dto.lat;
     if (dto.lng !== undefined) target.lng = dto.lng;
     if (dto.duration !== undefined) target.duration = dto.duration;
+  }
+  async findUnseenMessages(
+    conversationId: string,
+    userId: string,
+  ): Promise<any[]> {
+    if (
+      !Types.ObjectId.isValid(conversationId) ||
+      !Types.ObjectId.isValid(userId)
+    ) {
+      return [];
+    }
+    const uid = new Types.ObjectId(userId);
+    const cid = new Types.ObjectId(conversationId);
+
+    return await this.messageModel
+      .find({
+        conversationId: cid,
+        senderId: { $ne: uid }, // Không phải tin của mình
+        isRecalled: false,
+        'seenBy.userId': { $ne: uid }, // Chưa có trong seenBy
+      })
+      .select('_id')
+      .lean()
+      .exec();
+  }
+
+  async bulkMarkSeen(
+    messageIds: string[],
+    userId: string,
+    seenAt: Date,
+  ): Promise<void> {
+    if (messageIds.length === 0) return;
+    const uid = new Types.ObjectId(userId);
+
+    await this.messageModel.updateMany(
+      {
+        _id: { $in: messageIds.map((id) => new Types.ObjectId(id)) },
+        'seenBy.userId': { $ne: uid },
+      },
+      {
+        $push: { seenBy: { userId: uid, seenAt } },
+        $set: { status: 'SEEN' },
+      },
+    );
   }
 }

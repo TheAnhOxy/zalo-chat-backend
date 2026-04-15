@@ -152,55 +152,78 @@ export class CallsGateway {
       endedAt: new Date().toISOString(),
     });
 
-    // ✅ Cập nhật lastMessage của conversation
     const callType =
       (call?.type as string) === 'VIDEO' ? 'Cuộc gọi video' : 'Cuộc gọi thoại';
-    const durationText =
-      finalDuration > 0
-        ? ` • ${Math.floor(finalDuration / 60)}:${String(finalDuration % 60).padStart(2, '0')}`
-        : '';
+    const mins = Math.floor(finalDuration / 60);
+    const secs = String(finalDuration % 60).padStart(2, '0');
+    const durationText = finalDuration > 0 ? ` • ${mins}:${secs}` : '';
+    const lastContent = `📞 ${callType}${durationText}`;
 
+    // ✅ Cập nhật lastMessage DB
     try {
-      await this.conversationsService.update(data.conversationId, {
-        lastMessage: {
-          content: `📞 ${callType}${durationText}`,
-          senderId: call?.callerId?.toString() ?? '',
-          createdAt: new Date().toISOString(),
-        },
-      });
-
-      // Broadcast để cập nhật UI danh sách chat
-      this.server.emit('conversation_updated', {
-        conversationId: data.conversationId,
+      await this.conversationsService.updateLastMessage(data.conversationId, {
+        content: lastContent,
+        senderId: call?.callerId?.toString() ?? '',
+        createdAt: new Date().toISOString(),
       });
     } catch (err) {
-      this.logger.error('Lỗi cập nhật lastMessage: ');
+      this.logger.error(err);
     }
 
-    client.to(data.conversationId).emit('call_ended', { callId: data.callId });
+    // ✅ Emit call_ended cho cả 2 bên (broadcast toàn room + người gọi)
+    // Emit cho người kia
+    client.to(data.conversationId).emit('call_ended', {
+      callId: data.callId,
+      callData: updatedCall, // ← gửi kèm data để Flutter thêm vào chatItems
+    });
+
+    // ✅ Emit conversation_updated để cập nhật lastMessage realtime
+    this.server.to(data.conversationId).emit('conversation_call_updated', {
+      conversationId: data.conversationId,
+      lastMessage: {
+        content: lastContent,
+        senderId: call?.callerId?.toString() ?? '',
+        createdAt: new Date().toISOString(),
+      },
+      callData: updatedCall,
+    });
+
     return updatedCall;
   }
 
-  /**
-   * 5. Từ chối cuộc gọi
-   */
   @SubscribeMessage('reject_call')
   async handleRejectCall(
     @MessageBody() data: { callId: string; conversationId: string },
     @ConnectedSocket() client: Socket,
   ) {
-    this.logger.log(`Call ${data.callId} rejected`);
-
     await this.callsService.update(data.callId, {
       status: CallStatus.REJECTED,
     });
 
-    // Báo cho người gọi biết cuộc gọi bị từ chối
+    const lastContent = '📞 Cuộc gọi nhỡ';
+
+    try {
+      const call = await this.callsService.findById(data.callId);
+      await this.conversationsService.updateLastMessage(data.conversationId, {
+        content: lastContent,
+        senderId: call?.callerId?.toString() ?? '',
+        createdAt: new Date().toISOString(),
+      });
+    } catch (e) {}
+
     client
       .to(data.conversationId)
       .emit('call_rejected', { callId: data.callId });
-  }
 
+    // ✅ Emit để cập nhật UI
+    this.server.to(data.conversationId).emit('conversation_call_updated', {
+      conversationId: data.conversationId,
+      lastMessage: {
+        content: lastContent,
+        createdAt: new Date().toISOString(),
+      },
+    });
+  }
   @SubscribeMessage('call_connected')
   async handleConnected(@MessageBody() data: { callId: string }) {
     this.logger.log(`Call ${data.callId} connected`);

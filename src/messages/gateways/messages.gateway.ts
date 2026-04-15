@@ -88,8 +88,13 @@ export class MessagesGateway
 
       return savedMsg;
     } catch (error) {
-      this.logger.error(`LỖI: ${error.message}`);
-      return { status: 'error', message: error.message };
+      if (error instanceof Error) {
+        this.logger.error(`LỖI: ${error.message}`);
+        return { status: 'error', message: error.message };
+      } else {
+        this.logger.error(`LỖI: ${String(error)}`);
+        return { status: 'error', message: 'Unknown error' };
+      }
     }
   }
 
@@ -131,5 +136,51 @@ export class MessagesGateway
       data.type,
     );
     this.server.to(data.conversationId).emit('message_updated', updatedMsg);
+  }
+
+  @SubscribeMessage('seen_conversation')
+  async handleSeenConversation(
+    @MessageBody() data: { conversationId: string; userId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    try {
+      const { conversationId, userId } = data;
+      if (!conversationId || !userId) return;
+
+      // Lấy tất cả messages chưa seen bởi user này
+      const messages = await this.messagesService.findUnseenMessages(
+        conversationId,
+        userId,
+      );
+
+      if (messages.length === 0) return;
+
+      const seenAt = new Date();
+
+      // Bulk update seenBy cho tất cả messages chưa đọc
+      await this.messagesService.bulkMarkSeen(
+        messages.map((m) => m._id.toString()),
+        userId,
+        seenAt,
+      );
+
+      // Lấy message mới nhất để emit event
+      const latestMessage = messages[messages.length - 1];
+
+      // Emit cho tất cả trong room biết đã đọc
+      this.server.to(conversationId).emit('message_seen', {
+        conversationId,
+        messageId: latestMessage._id.toString(),
+        userId,
+        status: 'SEEN',
+        seenBy: [{ userId, seenAt: seenAt.toISOString() }],
+      });
+    } catch (e) {
+      if (e instanceof Error) {
+        this.logger.error('seen_conversation error: ' + e.message);
+      } else {
+        this.logger.error('seen_conversation error: ' + String(e));
+      }
+    }
   }
 }
