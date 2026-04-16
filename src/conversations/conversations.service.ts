@@ -11,6 +11,7 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import {
   Conversation,
   ConversationDocument,
+  ConversationMember,
   ConversationMemberRole,
   LastMessage,
 } from './schemas/conversation.schema';
@@ -30,6 +31,112 @@ export class ConversationsService {
     private readonly configService: ConfigService,
   ) {}
 
+  private ensureGroupSettings(doc: ConversationDocument): void {
+    if (doc.groupSettings) return;
+    doc.groupSettings = {
+      allowInviteLink: true,
+      joinQrCode: '',
+      isLockChat: false,
+      chatBackgroundType: 'PRESET',
+      chatBackgroundIndex: 0,
+      chatBackgroundCustomBase64: '',
+    } as unknown as Conversation['groupSettings'];
+  }
+
+  private randomCode(length = 12): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    let out = '';
+    for (let i = 0; i < length; i++) {
+      out += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return out;
+  }
+
+  private inviteLinkFromCode(code: string): string {
+    // Có thể thay bằng deep-link sau. Tạm dùng URL backend để dễ test trên web.
+    const base =
+      this.configService.get<string>('PUBLIC_APP_URL') ??
+      this.configService.get<string>('PUBLIC_BASE_URL') ??
+      `http://localhost:${process.env.PORT || 8081}`;
+    return `${base}/conversations/join?code=${encodeURIComponent(code)}`;
+  }
+
+  async getOrCreateInviteLink(
+    conversationId: string,
+  ): Promise<{ enabled: boolean; code: string; link: string }> {
+    const doc = await this.conversationModel.findById(conversationId);
+    if (!doc) throw new NotFoundException('Không tìm thấy conversation');
+
+    this.ensureGroupSettings(doc);
+
+    if (!doc.groupSettings.joinQrCode) {
+      doc.groupSettings.joinQrCode = this.randomCode(12);
+      await doc.save();
+    }
+
+    const code = doc.groupSettings.joinQrCode;
+    return {
+      enabled: doc.groupSettings.allowInviteLink !== false,
+      code,
+      link: this.inviteLinkFromCode(code),
+    };
+  }
+
+  async regenerateInviteLink(
+    conversationId: string,
+  ): Promise<{ enabled: boolean; code: string; link: string }> {
+    const doc = await this.conversationModel.findById(conversationId);
+    if (!doc) throw new NotFoundException('Không tìm thấy conversation');
+
+    this.ensureGroupSettings(doc);
+
+    doc.groupSettings.joinQrCode = this.randomCode(12);
+    await doc.save();
+
+    const code = doc.groupSettings.joinQrCode;
+    return {
+      enabled: doc.groupSettings.allowInviteLink !== false,
+      code,
+      link: this.inviteLinkFromCode(code),
+    };
+  }
+
+  async joinByInviteLink(
+    code: string,
+    userId: string,
+  ): Promise<Record<string, unknown>> {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new NotFoundException('User ID không hợp lệ');
+    }
+
+    const conv = await this.conversationModel.findOne({
+      type: 'GROUP',
+      'groupSettings.joinQrCode': code,
+      'groupSettings.allowInviteLink': { $ne: false },
+    });
+    if (!conv) {
+      throw new NotFoundException('Link nhóm không hợp lệ hoặc đã tắt');
+    }
+
+    const uid = new Types.ObjectId(userId);
+    const exists = conv.members.some((m) => String(m.userId) === String(uid));
+    if (!exists) {
+      const member: ConversationMember = {
+        userId: uid,
+        role: ConversationMemberRole.MEMBER,
+        nickname: '',
+        joinedAt: new Date(),
+        isMuted: false,
+        isPinned: false,
+        isHidden: false,
+        hiddenPin: '',
+      };
+      conv.members.push(member);
+      await conv.save();
+    }
+
+    return toPlainDoc(conv);
+  }
 
   /** Upload ảnh nhóm qua backend → S3, trả về URL công khai. */
   async uploadGroupAvatar(file: {
@@ -86,6 +193,7 @@ export class ConversationsService {
       type: dto.type,
       name: dto.name ?? '',
       avatar: dto.avatar ?? '',
+      description: dto.description ?? '',
       members: this.mapMembers(dto.members),
       lastMessage: dto.lastMessage
         ? this.mapLastMessage(dto.lastMessage)
@@ -95,6 +203,11 @@ export class ConversationsService {
             allowInviteLink: dto.groupSettings.allowInviteLink ?? true,
             joinQrCode: dto.groupSettings.joinQrCode ?? '',
             isLockChat: dto.groupSettings.isLockChat ?? false,
+            chatBackgroundType:
+              dto.groupSettings.chatBackgroundType ?? 'PRESET',
+            chatBackgroundIndex: dto.groupSettings.chatBackgroundIndex ?? 0,
+            chatBackgroundCustomBase64:
+              dto.groupSettings.chatBackgroundCustomBase64 ?? '',
           }
         : undefined,
     });
@@ -180,6 +293,7 @@ export class ConversationsService {
     if (dto.type !== undefined) doc.type = dto.type;
     if (dto.name !== undefined) doc.name = dto.name;
     if (dto.avatar !== undefined) doc.avatar = dto.avatar;
+    if (dto.description !== undefined) doc.description = dto.description;
     if (dto.members !== undefined) {
       doc.members = this.mapMembers(dto.members) as Conversation['members'];
     }

@@ -50,6 +50,11 @@ export class UpdateMessageDto {
   @IsBoolean()
   isRecalled?: boolean;
 
+  @ApiPropertyOptional({ description: 'Ghim / bỏ ghim tin nhắn' })
+  @IsOptional()
+  @IsBoolean()
+  isPinned?: boolean;
+
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()

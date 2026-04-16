@@ -94,6 +94,30 @@ export class ConversationsController {
     return this.conversationsService.findById(id);
   }
 
+  @Get(':id/invite-link')
+  @ApiOperation({ summary: 'Lấy/tạo link mời vào nhóm' })
+  getInviteLink(@Param('id') id: string) {
+    return this.conversationsService.getOrCreateInviteLink(id);
+  }
+
+  @Post(':id/invite-link/regenerate')
+  @ApiOperation({ summary: 'Tạo mới link mời (đổi code)' })
+  regenerateInviteLink(@Param('id') id: string) {
+    return this.conversationsService.regenerateInviteLink(id);
+  }
+
+  @Post('join-by-link')
+  @ApiOperation({ summary: 'Tham gia nhóm bằng code link' })
+  joinByLink(@Body() body: { code: string; userId: string }) {
+    return this.conversationsService.joinByInviteLink(body.code, body.userId);
+  }
+
+  @Get('join')
+  @ApiOperation({ summary: 'Endpoint test join link (chỉ để debug trên web)' })
+  joinDebug(@Query('code') code: string) {
+    return { success: true, code };
+  }
+
   @Patch(':id')
   @ApiOperation({
     summary: 'Cập nhật (members / lastMessage / groupSettings / …)',
