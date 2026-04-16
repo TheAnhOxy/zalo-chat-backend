@@ -1,4 +1,12 @@
-import { IsBoolean, IsString, IsOptional } from 'class-validator';
+import {
+  IsBoolean,
+  IsString,
+  IsOptional,
+  IsInt,
+  Min,
+  Max,
+  IsIn,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class GroupSettingsDto {
@@ -16,4 +24,22 @@ export class GroupSettingsDto {
   @IsOptional()
   @IsBoolean()
   isLockChat?: boolean;
+
+  // ── Group chat background ────────────────────────────────────────────────
+  @ApiPropertyOptional({ enum: ['PRESET', 'CUSTOM'] })
+  @IsOptional()
+  @IsIn(['PRESET', 'CUSTOM'])
+  chatBackgroundType?: 'PRESET' | 'CUSTOM';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(999)
+  chatBackgroundIndex?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  chatBackgroundCustomBase64?: string;
 }

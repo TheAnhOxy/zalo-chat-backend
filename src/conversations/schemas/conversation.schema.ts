@@ -61,8 +61,7 @@ export class LastMessage {
   @Prop({ type: Date, default: () => new Date() })
   createdAt: Date;
 }
-export const LastMessageMongoSchema =
-  SchemaFactory.createForClass(LastMessage);
+export const LastMessageMongoSchema = SchemaFactory.createForClass(LastMessage);
 
 @Schema({ _id: false })
 export class GroupSettings {
@@ -74,6 +73,18 @@ export class GroupSettings {
 
   @Prop({ type: Boolean, default: false })
   isLockChat: boolean;
+
+  // ── Group chat background (áp dụng cho tất cả thành viên) ───────────────────
+  @Prop({ type: String, default: 'PRESET' })
+  chatBackgroundType: 'PRESET' | 'CUSTOM';
+
+  @Prop({ type: Number, default: 0 })
+  chatBackgroundIndex: number;
+
+  // Lưu base64 (không kèm prefix "data:image/...") cho bản demo.
+  // Nếu cần production: nên upload lên S3 và lưu URL.
+  @Prop({ type: String, default: '' })
+  chatBackgroundCustomBase64: string;
 }
 export const GroupSettingsMongoSchema =
   SchemaFactory.createForClass(GroupSettings);
@@ -95,6 +106,9 @@ export class Conversation {
 
   @Prop({ type: String, default: '' })
   avatar: string;
+
+  @Prop({ type: String, default: '' })
+  description: string;
 
   @Prop({
     type: [ConversationMemberMongoSchema],

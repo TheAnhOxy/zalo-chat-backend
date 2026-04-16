@@ -93,9 +93,9 @@ export class Message {
     type: String,
     enum: Object.values(MessageType),
     required: true,
-    alias: 'type', 
+    alias: 'type',
   })
-  messageType: MessageType; 
+  messageType: MessageType;
 
   @Prop({ type: String, default: '' })
   content: string;
@@ -133,6 +133,13 @@ export class Message {
     default: [],
   })
   seenBy: MessageSeenBy[];
+
+  // ── Pinned message ──────────────────────────────────────────────────────────
+  @Prop({ type: Boolean, default: false })
+  isPinned: boolean;
+
+  @Prop({ type: Date, default: null })
+  pinnedAt: Date | null;
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);
@@ -150,3 +157,4 @@ MessageSchema.index(
   },
 );
 MessageSchema.index({ conversationId: 1, isRecalled: 1, createdAt: -1 });
+MessageSchema.index({ conversationId: 1, isPinned: 1, pinnedAt: -1 });
