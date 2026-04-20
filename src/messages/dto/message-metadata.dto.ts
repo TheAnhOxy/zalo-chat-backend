@@ -1,4 +1,5 @@
 import { IsString, IsNumber, IsOptional } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class MessageMetadataDto {
@@ -9,6 +10,7 @@ export class MessageMetadataDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   fileSize?: number;
 
@@ -24,16 +26,19 @@ export class MessageMetadataDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   lat?: number;
 
   @ApiPropertyOptional()
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   lng?: number;
 
   @ApiPropertyOptional()
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   duration?: number;
 }
