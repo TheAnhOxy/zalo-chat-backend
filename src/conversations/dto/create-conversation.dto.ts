@@ -29,6 +29,11 @@ export class CreateConversationDto {
   @IsString()
   avatar?: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  description?: string;
+
   @ApiProperty({ type: [ConversationMemberDto] })
   @IsArray()
   @ArrayMinSize(1)

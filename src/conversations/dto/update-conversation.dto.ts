@@ -29,6 +29,11 @@ export class UpdateConversationDto {
   @IsString()
   avatar?: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  description?: string;
+
   @ApiPropertyOptional({ type: [ConversationMemberDto] })
   @IsOptional()
   @IsArray()
