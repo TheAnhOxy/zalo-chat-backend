@@ -30,6 +30,10 @@ export class Call {
   @Prop({ type: [{ type: Types.ObjectId, ref: 'User' }], default: [] })
   participants: Types.ObjectId[];
 
+  /** ✅ Danh sách participants đang hoạt động (chưa rời cuộc gọi) */
+  @Prop({ type: [{ type: Types.ObjectId, ref: 'User' }], default: [] })
+  activeParticipants: Types.ObjectId[];
+
   @Prop({
     type: String,
     enum: Object.values(CallType),
