@@ -81,6 +81,7 @@ async function bootstrap() {
     .addTag('Reports (Admin)', 'Báo cáo vi phạm — collection reports')
     .addTag('Seed', 'Dữ liệu mẫu — chỉ dev / SEED_HTTP=true')
     .addTag('Auth', 'Đăng ký / đăng nhập / OTP / JWT')
+    .addTag('Chatbot', 'AI Chatbot — delivery + DB query + file reading')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

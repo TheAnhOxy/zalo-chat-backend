@@ -23,6 +23,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1029.0",
     "@aws-sdk/s3-request-presigner": "^3.1029.0",
+    "@google/generative-ai": "^0.24.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
@@ -37,9 +38,12 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
     "google-auth-library": "^10.6.2",
+    "groq-sdk": "^1.1.2",
     "jsonwebtoken": "^9.0.3",
+    "mammoth": "^1.12.0",
     "mongoose": "^8.19.1",
     "nodemailer": "^8.0.5",
+    "pdf-parse": "^2.4.5",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.3"
