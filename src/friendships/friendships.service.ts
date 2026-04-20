@@ -73,6 +73,36 @@ export class FriendshipsService {
     return list as Record<string, unknown>[];
   }
 
+  async findAcceptedFriendIdsByUserId(userId: string): Promise<string[]> {
+    if (!Types.ObjectId.isValid(userId)) {
+      return [];
+    }
+
+    const oid = new Types.ObjectId(userId);
+    const rows = await this.friendshipModel
+      .find({
+        status: FriendshipStatus.ACCEPTED,
+        $or: [{ requesterId: oid }, { addresseeId: oid }],
+      })
+      .select('requesterId addresseeId')
+      .lean()
+      .exec();
+
+    const friendIds = new Set<string>();
+    for (const row of rows) {
+      const requesterId = String(row.requesterId);
+      const addresseeId = String(row.addresseeId);
+      if (requesterId !== userId) {
+        friendIds.add(requesterId);
+      }
+      if (addresseeId !== userId) {
+        friendIds.add(addresseeId);
+      }
+    }
+
+    return Array.from(friendIds);
+  }
+
   async update(
     id: string,
     dto: UpdateFriendshipDto,

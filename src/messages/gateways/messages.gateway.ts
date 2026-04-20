@@ -11,6 +11,8 @@ import {
 import { Server, Socket } from 'socket.io';
 import { MessagesService } from '../messages.service';
 import { UsersService } from '../../users/users.service'; // 👈 Cần import UsersService
+import { FriendshipsService } from '../../friendships/friendships.service';
+import { ConversationsService } from '../../conversations/conversations.service';
 import { CreateMessageDto } from '../dto/create-message.dto';
 import { ReactionType } from '../schemas/message.schema';
 import { instrument } from '@socket.io/admin-ui';
@@ -30,11 +32,13 @@ export class MessagesGateway
   server!: Server;
 
   private readonly logger = new Logger('MessagesGateway');
-  private activeUsers = new Map<string, string>(); // userId -> socketId
+  private readonly userSockets = new Map<string, Set<string>>();
 
   constructor(
     private readonly messagesService: MessagesService,
     private readonly usersService: UsersService, // 👈 Inject UsersService vào đây
+    private readonly friendshipsService: FriendshipsService,
+    private readonly conversationsService: ConversationsService,
   ) {}
 
   afterInit() {
@@ -47,23 +51,27 @@ export class MessagesGateway
 
   // Khi người dùng kết nối (Online)
   async handleConnection(client: Socket) {
-    const userId = client.handshake.query.userId as string;
-    if (userId) {
-      client.join(userId);
-      this.activeUsers.set(userId, client.id);
-      
-      // Cập nhật trạng thái vào lồng object 'status' theo Schema của bạn
-      await this.usersService.updateStatus2(userId, {
-        isOnline: true,
-        lastSeen: new Date(),
-      });
+    const userId = this.getUserId(client);
+    if (!userId) {
+      return;
+    }
 
-      // Phát sự kiện cho toàn bộ hệ thống để hiện chấm xanh
-      this.server.emit('user_status_changed', { 
-        userId, 
-        isOnline: true 
-      });
-      
+    client.data.userId = userId;
+    client.join(userId);
+
+    const sockets = this.userSockets.get(userId) ?? new Set<string>();
+    const wasOffline = sockets.size === 0;
+    sockets.add(client.id);
+    this.userSockets.set(userId, sockets);
+
+    const lastSeen = new Date();
+    await this.usersService.updateStatus2(userId, {
+      isOnline: true,
+      lastSeen,
+    });
+
+    if (wasOffline) {
+      await this.broadcastUserStatus(userId, true, lastSeen);
       this.logger.log(`User ${userId} is online`);
     }
   }
@@ -80,34 +88,34 @@ export class MessagesGateway
 
   // Khi người dùng ngắt kết nối (Offline)
   async handleDisconnect(client: Socket) {
-    let disconnectedUserId: string | null = null;
+    this.broadcastStopTypingOnDisconnect(client);
 
-    // Tìm userId dựa trên socketId đang ngắt kết nối
-    for (const [userId, socketId] of this.activeUsers.entries()) {
-      if (socketId === client.id) {
-        disconnectedUserId = userId;
-        this.activeUsers.delete(userId);
-        break;
-      }
+    const userId = this.getUserId(client);
+    if (!userId) {
+      return;
     }
 
-    if (disconnectedUserId) {
-      const now = new Date();
-      // Cập nhật DB trạng thái ngoại tuyến và thời gian cuối
-      await this.usersService.updateStatus2(disconnectedUserId, {
-        isOnline: false,
-        lastSeen: new Date(),
-      });
-
-      // Thông báo cho mọi người để tắt chấm xanh và hiện "Ngoại tuyến"
-      this.server.emit('user_status_changed', { 
-        userId: disconnectedUserId, 
-        isOnline: false,
-        lastSeen: now
-      });
-      
-      this.logger.log(`User ${disconnectedUserId} is offline`);
+    const sockets = this.userSockets.get(userId);
+    if (!sockets) {
+      return;
     }
+
+    sockets.delete(client.id);
+    if (sockets.size > 0) {
+      this.userSockets.set(userId, sockets);
+      return;
+    }
+
+    this.userSockets.delete(userId);
+
+    const lastSeen = new Date();
+    await this.usersService.updateStatus2(userId, {
+      isOnline: false,
+      lastSeen,
+    });
+
+    await this.broadcastUserStatus(userId, false, lastSeen);
+    this.logger.log(`User ${userId} is offline`);
   }
 
   @SubscribeMessage('join_conversation')
@@ -117,6 +125,68 @@ export class MessagesGateway
   ) {
     if (conversationId) {
       client.join(conversationId);
+    }
+  }
+
+  private getUserId(client: Socket): string | null {
+    const rawUserId = client.handshake.query.userId ?? client.data.userId;
+    if (Array.isArray(rawUserId)) {
+      return rawUserId[0] ?? null;
+    }
+    return typeof rawUserId === 'string' && rawUserId.trim().length > 0
+      ? rawUserId.trim()
+      : null;
+  }
+
+  private normalizeUserStatusPayload(
+    userId: string,
+    isOnline: boolean,
+    lastSeen: Date,
+  ) {
+    return {
+      userId,
+      isOnline,
+      lastSeen: lastSeen.toISOString(),
+    };
+  }
+
+  private async getUserStatusRecipients(userId: string): Promise<string[]> {
+    const [friendIds, conversationMemberIds] = await Promise.all([
+      this.friendshipsService.findAcceptedFriendIdsByUserId(userId),
+      this.conversationsService.findMemberUserIdsByUserId(userId),
+    ]);
+
+    return Array.from(new Set([userId, ...friendIds, ...conversationMemberIds]));
+  }
+
+  private async broadcastUserStatus(
+    userId: string,
+    isOnline: boolean,
+    lastSeen: Date,
+  ): Promise<void> {
+    const payload = this.normalizeUserStatusPayload(userId, isOnline, lastSeen);
+    const recipientIds = await this.getUserStatusRecipients(userId);
+
+    for (const recipientId of recipientIds) {
+      this.server.to(recipientId).emit('user_status_changed', payload);
+    }
+  }
+
+  private broadcastStopTypingOnDisconnect(client: Socket): void {
+    const userId = this.getUserId(client);
+    if (!userId) {
+      return;
+    }
+
+    for (const roomId of client.rooms) {
+      if (roomId === client.id || roomId === userId) {
+        continue;
+      }
+
+      client.to(roomId).emit('stop_typing', {
+        conversationId: roomId,
+        userId,
+      });
     }
   }
 
@@ -150,9 +220,41 @@ export class MessagesGateway
 
   @SubscribeMessage('typing')
   handleTyping(
-    @MessageBody() data: { conversationId: string; userId: string; isTyping: boolean },
+    @MessageBody() data: { conversationId: string; userId: string },
+    @ConnectedSocket() client: Socket,
   ) {
-    this.server.to(data.conversationId).emit('user_typing', data);
+    if (!data?.conversationId || !data?.userId) {
+      return;
+    }
+
+    // Chỉ phát trong room hội thoại, trừ chính người gửi để tránh loop UI.
+    if (!client.rooms.has(data.conversationId)) {
+      return;
+    }
+
+    client.to(data.conversationId).emit('typing', {
+      conversationId: data.conversationId,
+      userId: data.userId,
+    });
+  }
+
+  @SubscribeMessage('stop_typing')
+  handleStopTyping(
+    @MessageBody() data: { conversationId: string; userId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    if (!data?.conversationId || !data?.userId) {
+      return;
+    }
+
+    if (!client.rooms.has(data.conversationId)) {
+      return;
+    }
+
+    client.to(data.conversationId).emit('stop_typing', {
+      conversationId: data.conversationId,
+      userId: data.userId,
+    });
   }
 
   @SubscribeMessage('add_reaction')

@@ -1,10 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 @Injectable()
 export class UploadService {
   private readonly s3Client: S3Client;
+  private readonly allowedAudioContentTypes = new Set([
+    'audio/mpeg',
+    'audio/m4a',
+    'audio/mp4',
+  ]);
 
   constructor() {
     this.s3Client = new S3Client({
@@ -37,7 +42,21 @@ export class UploadService {
   private resolveContentType(fileName: string, contentType?: string): string {
     const trimmedContentType = contentType?.trim();
     if (trimmedContentType) {
-      return trimmedContentType;
+      if (this.allowedAudioContentTypes.has(trimmedContentType)) {
+        return trimmedContentType;
+      }
+
+      throw new BadRequestException(
+        'Unsupported contentType. Only audio/mpeg, audio/m4a, and audio/mp4 are allowed for voice uploads.',
+      );
+    }
+
+    const lowerFileName = fileName.toLowerCase();
+    if (lowerFileName.endsWith('.mp3')) {
+      return 'audio/mpeg';
+    }
+    if (lowerFileName.endsWith('.m4a')) {
+      return 'audio/m4a';
     }
 
     return 'application/octet-stream';
