@@ -90,25 +90,33 @@ export class CallsService {
   }
 
   async update(id: string, dto: UpdateCallDto): Promise<Record<string, unknown>> {
-    const doc = await this.callModel.findById(id);
+    const updateData: any = {};
+
+    if (dto.type !== undefined) updateData.type = dto.type;
+    if (dto.status !== undefined) updateData.status = dto.status;
+    if (dto.startedAt !== undefined) {
+      updateData.startedAt = dto.startedAt ? new Date(dto.startedAt) : null;
+    }
+    if (dto.endedAt !== undefined) {
+      updateData.endedAt = dto.endedAt ? new Date(dto.endedAt) : null;
+    }
+    if (dto.duration !== undefined) updateData.duration = dto.duration;
+    if (dto.participants !== undefined) {
+      updateData.participants = dto.participants.map((x) => new Types.ObjectId(x));
+    }
+    if (dto.activeParticipants !== undefined) {
+      updateData.activeParticipants = dto.activeParticipants.map((x) => new Types.ObjectId(x));
+    }
+
+    // ✅ Dùng findByIdAndUpdate để avoid Mongoose version conflict
+    const doc = await this.callModel
+      .findByIdAndUpdate(id, updateData, { new: true, runValidators: true })
+      .exec();
+
     if (!doc) {
       throw new NotFoundException('Không tìm thấy call');
     }
 
-    if (dto.type !== undefined) doc.type = dto.type;
-    if (dto.status !== undefined) doc.status = dto.status;
-    if (dto.startedAt !== undefined) {
-      doc.startedAt = dto.startedAt ? new Date(dto.startedAt) : null;
-    }
-    if (dto.endedAt !== undefined) {
-      doc.endedAt = dto.endedAt ? new Date(dto.endedAt) : null;
-    }
-    if (dto.duration !== undefined) doc.duration = dto.duration;
-    if (dto.participants !== undefined) {
-      doc.participants = dto.participants.map((x) => new Types.ObjectId(x));
-    }
-
-    await doc.save();
     return toPlainDoc(doc);
   }
 

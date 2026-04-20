@@ -7,6 +7,7 @@ import {
   OnGatewayConnection,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { Types } from 'mongoose';
 import { CallsService } from '../calls.service';
 import { CreateCallDto } from '../dto/create-call.dto';
 import { CallStatus } from '../schemas/call.schema';
@@ -313,12 +314,156 @@ export class CallsGateway implements OnGatewayConnection {
     }
   }
   @SubscribeMessage('call_connected')
-  async handleConnected(@MessageBody() data: { callId: string }) {
-    this.logger.log(`Call ${data.callId} connected`);
+  async handleConnected(
+    @MessageBody() data: { callId: string; conversationId: string; userId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    this.logger.log(`Call ${data.callId} connected by user ${data.userId}`);
+
+    // ✅ Socket JOIN conversationId room để nhận broadcast events
+    client.join(data.conversationId);
+    this.logger.log(`Socket joined room ${data.conversationId}`);
+
+    // ✅ Lấy call hiện tại để check xem startedAt đã tồn tại chưa
+    const existingCall = await this.callsService.findById(data.callId);
+    const isFirstConnection = !existingCall?.startedAt;
+
+    let startedAt = existingCall?.startedAt
+      ? (existingCall.startedAt as Date).toISOString()
+      : new Date().toISOString();
+
+    // ✅ Atomic add user to activeParticipants (avoid race condition)
+    // Dùng $addToSet để chỉ add nếu chưa tồn tại
+    const updateData: any = {
+      startedAt: startedAt,
+      status: CallStatus.ACCEPTED,
+    };
+
+    // Use atomic $addToSet operator
+    const updatedCall = await (this.callsService as any).callModel.findByIdAndUpdate(
+      data.callId,
+      {
+        $set: {
+          startedAt: startedAt,
+          status: CallStatus.ACCEPTED,
+        },
+        $addToSet: {
+          activeParticipants: new Types.ObjectId(data.userId),
+        },
+      },
+      { new: true },
+    );
+
+    this.logger.log(
+      `Added ${data.userId} to activeParticipants. Total: ${(updatedCall?.activeParticipants as any[])?.length ?? 0}`,
+    );
+
+    // ✅ CHỈ emit call_started lần đầu tiên
+    if (isFirstConnection) {
+      this.logger.log('📢 Broadcasting call_started (first connection)');
+      this.server.to(data.conversationId).emit('call_started', {
+        callId: data.callId,
+        startedAt: startedAt,
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  /**
+   * ✅ 5. Người rời cuộc gọi nhóm (nhưng call vẫn tiếp tục nếu còn 2+ người)
+   */
+  @SubscribeMessage('leave_call')
+  async handleLeaveCall(
+    @MessageBody()
+    data: {
+      callId: string;
+      conversationId: string;
+      userId: string;
+    },
+    @ConnectedSocket() client: Socket,
+  ) {
+    this.logger.log(
+      `User ${data.userId} leaving call ${data.callId} in room ${data.conversationId}`,
+    );
+
+    const call = await this.callsService.findById(data.callId);
+    if (!call) {
+      this.logger.warn(`Call ${data.callId} not found`);
+      return;
+    }
+
+    // Cập nhật activeParticipants (loại bỏ user này)
+    const activeParticipants = ((call.activeParticipants || call.participants) as any[])
+      .map((id) => id?.toString?.() ?? '')
+      .filter((id) => id !== data.userId);
 
     await this.callsService.update(data.callId, {
-      startedAt: new Date().toISOString(),
-      status: CallStatus.ACCEPTED,
+      activeParticipants: activeParticipants,
+    });
+
+    this.logger.log(
+      `Updated activeParticipants: ${activeParticipants.length} remaining`,
+    );
+
+    // Nếu còn ít nhất 2 người → call tiếp tục
+    if (activeParticipants.length >= 2) {
+      // 🔴 Notify room: Có 1 người rời (nhưng call vẫn tiếp tục)
+      this.server.to(data.conversationId).emit('participant_left', {
+        callId: data.callId,
+        userId: data.userId,
+        activeParticipantsCount: activeParticipants.length,
+      });
+      return;
+    }
+
+    // Nếu chỉ còn dưới 2 người → kết thúc call
+    this.logger.log(`Only ${activeParticipants.length} active, ending call`);
+
+    let finalDuration = 0;
+    if (call && call.startedAt) {
+      const startTime = new Date(call.startedAt as string).getTime();
+      const endTime = new Date().getTime();
+      finalDuration = Math.round((endTime - startTime) / 1000);
+    }
+
+    const updatedCall = await this.callsService.update(data.callId, {
+      status: CallStatus.ENDED,
+      duration: finalDuration,
+      endedAt: new Date().toISOString(),
+    });
+
+    const callType =
+      (call?.type as string) === 'VIDEO' ? 'Cuộc gọi video' : 'Cuộc gọi thoại';
+    const mins = Math.floor(finalDuration / 60);
+    const secs = String(finalDuration % 60).padStart(2, '0');
+    const durationText = finalDuration > 0 ? ` • ${mins}:${secs}` : '';
+    const lastContent = `📞 ${callType}${durationText}`;
+
+    try {
+      await this.conversationsService.updateLastMessage(data.conversationId, {
+        content: lastContent,
+        senderId: call?.callerId?.toString() ?? '',
+        createdAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      this.logger.error(err);
+    }
+
+    // 🔴 Notify: Call kết thúc (tất cả mọi người)
+    this.server.to(data.conversationId).emit('call_ended', {
+      callId: data.callId,
+      reason: 'Không đủ người tham gia',
+      callData: updatedCall,
+    });
+
+    this.server.to(data.conversationId).emit('conversation_call_updated', {
+      conversationId: data.conversationId,
+      lastMessage: {
+        content: lastContent,
+        senderId: call?.callerId?.toString() ?? '',
+        createdAt: new Date().toISOString(),
+      },
+      callData: updatedCall,
     });
   }
 }
