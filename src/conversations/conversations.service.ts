@@ -281,6 +281,29 @@ export class ConversationsService {
 
     return conversations as Record<string, unknown>[];
   }
+
+  async findMemberUserIdsByUserId(userId: string): Promise<string[]> {
+    if (!Types.ObjectId.isValid(userId)) return [];
+
+    const conversations = await this.conversationModel
+      .find({ 'members.userId': new Types.ObjectId(userId) })
+      .select('members.userId')
+      .lean()
+      .exec();
+
+    const memberIds = new Set<string>();
+    for (const conversation of conversations) {
+      for (const member of conversation.members ?? []) {
+        const memberId = String(member.userId);
+        if (memberId !== userId) {
+          memberIds.add(memberId);
+        }
+      }
+    }
+
+    return Array.from(memberIds);
+  }
+
   async update(
     id: string,
     dto: UpdateConversationDto,

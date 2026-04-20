@@ -42,4 +42,11 @@ export class UpdateCallDto {
   @ArrayMinSize(0)
   @IsMongoId({ each: true })
   participants?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(0)
+  @IsMongoId({ each: true })
+  activeParticipants?: string[];
 }
