@@ -42,7 +42,12 @@ export class CallsGateway implements OnGatewayConnection {
    */
   @SubscribeMessage('start_call')
   async handleStartCall(
-    @MessageBody() data: { callDto: CreateCallDto; offer: any },
+    @MessageBody()
+    data: {
+      callDto: CreateCallDto;
+      offer?: any;
+      offers?: Array<{ targetId: string; offer: any }>;
+    },
     @ConnectedSocket() client: Socket,
   ) {
     this.logger.log(
@@ -54,27 +59,61 @@ export class CallsGateway implements OnGatewayConnection {
 
     client.emit('call_created', {
       callId: callRecord._id,
+      conversationId: data.callDto.conversationId,
     });
-    // // Gửi tín hiệu 'incoming_call' cho tất cả mọi người trong room TRỪ người gọi
-    // client.to(data.callDto.conversationId).emit('incoming_call', {
-    //   callId: callRecord._id,
-    //   offer: data.offer,
-    //   callerId: data.callDto.callerId,
-    //   type: data.callDto.type,
-    //   conversationId: data.callDto.conversationId,
-    // });
 
-    // Gửi trực tiếp vào room cá nhân của từng người nhận:
-    for (const receiverId of data.callDto.participants) {
-      this.server.to(receiverId.toString()).emit('incoming_call', {
-        callId: callRecord._id,
-        offer: data.offer,
-        callerId: data.callDto.callerId,
-        callerName: data.callDto.callerName, // thêm
-        callerAvatar: data.callDto.callerAvatar, // thêm
-        type: data.callDto.type,
-        conversationId: data.callDto.conversationId,
-      });
+    const isGroup = (data.callDto.participants?.length ?? 0) > 1;
+    let groupName = '';
+    let groupAvatar = '';
+
+    if (isGroup) {
+      try {
+        const conversation = await this.conversationsService.findById(
+          data.callDto.conversationId,
+        );
+        groupName = (conversation['name'] as string) ?? '';
+        groupAvatar = (conversation['avatar'] as string) ?? '';
+      } catch (error) {
+        this.logger.warn(
+          `Không lấy được thông tin nhóm cho conversation ${data.callDto.conversationId}`,
+        );
+      }
+    }
+
+    if (Array.isArray(data.offers) && data.offers.length > 0) {
+      for (const offerEntry of data.offers) {
+        if (!offerEntry?.targetId) continue;
+
+        this.server.to(offerEntry.targetId.toString()).emit('incoming_call', {
+          callId: callRecord._id,
+          offer: offerEntry.offer,
+          callerId: data.callDto.callerId,
+          callerName: data.callDto.callerName,
+          callerAvatar: data.callDto.callerAvatar,
+          type: data.callDto.type,
+          conversationId: data.callDto.conversationId,
+          participants: data.callDto.participants,
+          isGroup,
+          groupName,
+          groupAvatar,
+        });
+      }
+    } else {
+      for (const receiverId of data.callDto.participants) {
+        this.server.to(receiverId.toString()).emit('incoming_call', {
+          callId: callRecord._id,
+          offer: data.offer,
+          callerId: data.callDto.callerId,
+          callerName: data.callDto.callerName,
+          callerAvatar: data.callDto.callerAvatar,
+          type: data.callDto.type,
+          conversationId: data.callDto.conversationId,
+          participants: data.callDto.participants,
+          isGroup,
+          groupName,
+          groupAvatar,
+        });
+      }
     }
 
     return callRecord;
@@ -96,24 +135,39 @@ export class CallsGateway implements OnGatewayConnection {
   @SubscribeMessage('answer_call')
   async handleAnswerCall(
     @MessageBody()
-    data: { conversationId: string; answer: any; callId: string },
+    data: {
+      conversationId: string;
+      answer: any;
+      callId: string;
+      targetId?: string;
+      sourceId?: string;
+    },
     @ConnectedSocket() client: Socket,
   ) {
     this.logger.log(
       `Call ${data.callId} accepted in room ${data.conversationId}`,
     );
 
+    const call = await this.callsService.findById(data.callId);
+    const callerId = (call?.callerId as any)?.toString?.();
+    const responderId = client.handshake.query.userId as string;
+    const targetId = data.targetId ?? callerId;
+
     // Cập nhật trạng thái bắt đầu cuộc gọi thực tế vào DB
     await this.callsService.update(data.callId, {
       status: CallStatus.ACCEPTED,
     });
 
-    // Gửi Answer cho mọi người trong room TRỪ người vừa nhấn nghe (User 2)
-    // Người gọi (User 1) sẽ nhận được cái này để bắt đầu kết nối P2P
-    client.to(data.conversationId).emit('call_answered', {
-      answer: data.answer,
-      callId: data.callId,
-    });
+    if (targetId) {
+      this.server.to(targetId).emit('call_answered', {
+        answer: data.answer,
+        callId: data.callId,
+        responderId,
+        isGroup: (call?.participants as any)?.length > 1,
+        sourceId: responderId,
+        targetId,
+      });
+    }
   }
 
   /**
@@ -128,14 +182,26 @@ export class CallsGateway implements OnGatewayConnection {
       candidate: string;
       sdpMid: string;
       sdpMLineIndex: number;
+      targetId?: string;
+      sourceId?: string;
     },
     @ConnectedSocket() client: Socket,
   ) {
-    client.to(data.conversationId).emit('ice_candidate', {
+    const payload = {
       candidate: data.candidate,
       sdpMid: data.sdpMid,
       sdpMLineIndex: data.sdpMLineIndex,
-    });
+      sourceId: data.sourceId ?? (client.handshake.query.userId as string),
+      targetId: data.targetId,
+      conversationId: data.conversationId,
+    };
+
+    if (data.targetId) {
+      this.server.to(data.targetId).emit('ice_candidate', payload);
+      return;
+    }
+
+    client.to(data.conversationId).emit('ice_candidate', payload);
   }
 
   /**
@@ -206,33 +272,45 @@ export class CallsGateway implements OnGatewayConnection {
     @MessageBody() data: { callId: string; conversationId: string },
     @ConnectedSocket() client: Socket,
   ) {
-    await this.callsService.update(data.callId, {
-      status: CallStatus.REJECTED,
-    });
+    const call = await this.callsService.findById(data.callId);
+    const callerId = (call?.callerId as any)?.toString?.();
+    const isGroup = (call?.participants as any)?.length > 1;
+
+    if (!isGroup) {
+      await this.callsService.update(data.callId, {
+        status: CallStatus.REJECTED,
+      });
+    }
 
     const lastContent = '📞 Cuộc gọi nhỡ';
 
-    try {
-      const call = await this.callsService.findById(data.callId);
-      await this.conversationsService.updateLastMessage(data.conversationId, {
-        content: lastContent,
-        senderId: call?.callerId?.toString() ?? '',
-        createdAt: new Date().toISOString(),
+    if (!isGroup) {
+      try {
+        await this.conversationsService.updateLastMessage(data.conversationId, {
+          content: lastContent,
+          senderId: call?.callerId?.toString() ?? '',
+          createdAt: new Date().toISOString(),
+        });
+      } catch (e) {}
+    }
+
+    if (callerId) {
+      this.server.to(callerId).emit('call_rejected', {
+        callId: data.callId,
+        rejecterId: client.handshake.query.userId as string,
+        isGroup,
       });
-    } catch (e) {}
+    }
 
-    client
-      .to(data.conversationId)
-      .emit('call_rejected', { callId: data.callId });
-
-    // ✅ Emit để cập nhật UI
-    this.server.to(data.conversationId).emit('conversation_call_updated', {
-      conversationId: data.conversationId,
-      lastMessage: {
-        content: lastContent,
-        createdAt: new Date().toISOString(),
-      },
-    });
+    if (!isGroup) {
+      this.server.to(data.conversationId).emit('conversation_call_updated', {
+        conversationId: data.conversationId,
+        lastMessage: {
+          content: lastContent,
+          createdAt: new Date().toISOString(),
+        },
+      });
+    }
   }
   @SubscribeMessage('call_connected')
   async handleConnected(@MessageBody() data: { callId: string }) {
