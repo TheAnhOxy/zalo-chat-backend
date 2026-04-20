@@ -1,4 +1,10 @@
-import { Controller, Get, Query, UseGuards, BadRequestException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { UploadService } from './upload.service';
 // import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -18,5 +24,14 @@ export class UploadController {
 
     // Gọi service để lấy URL tạm thời (PUT) và URL truy cập file sau khi upload (GET)
     return await this.uploadService.getPresignedUrl(fileName, contentType);
+  }
+
+  @Get('presigned-download-url')
+  async getPresignedDownloadUrl(
+    @Query('url') url: string,
+    @Query('name') name?: string,
+  ) {
+    if (!url) throw new BadRequestException('Thiếu url');
+    return await this.uploadService.getPresignedDownloadUrl(url, name);
   }
 }

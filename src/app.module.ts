@@ -16,6 +16,7 @@ import { SeedModule } from './seed/seed.module';
 import { getMongoConfig } from './config/mongo.config';
 import { UploadModule } from './upload/upload.module';
 import { AuthModule } from './auth/auth.module';
+import { ChatbotModule } from './chatbot/chatbot.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -39,6 +40,7 @@ import { AuthModule } from './auth/auth.module';
     SeedModule,
     UploadModule,
     AuthModule,
+    ChatbotModule,
   ],
   controllers: [AppController],
   providers: [AppService],
