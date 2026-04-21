@@ -7,6 +7,7 @@ export enum OtpPurpose {
   REGISTER = 'register',
   FORGOT_PASSWORD = 'forgot_password',
   LOGIN_PHONE = 'login_phone',
+  LOGIN_NEW_DEVICE = 'login_new_device',
 }
 
 @Schema({
