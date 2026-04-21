@@ -17,6 +17,11 @@ import {
   OtpSession,
   OtpSessionDocument,
 } from './schemas/otp-session.schema';
+import {
+  LoginChallenge,
+  LoginChallengeDocument,
+  LoginChallengeStatus,
+} from './schemas/login-challenge.schema';
 import { RegisterDto } from './dto/register.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { LoginDto } from './dto/login.dto';
@@ -38,11 +43,25 @@ import { LoginPhoneRequestOtpDto } from './dto/login-phone-request-otp.dto';
 import { LogoutAllDto } from './dto/logout-all.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { GoogleLoginDto } from './dto/google-login.dto';
+import { LoginChallengeStatusDto } from './dto/login-challenge-status.dto';
 
 interface TokenPair {
   accessToken: string;
   refreshToken: string;
   accessExpiredAt: string;
+}
+
+interface PendingNewDevicePayload {
+  userId: string;
+  device: SessionDevice;
+  deviceName: string;
+  ip: string;
+}
+
+interface LoginChallengeTokenPayload {
+  challengeId: string;
+  action: 'approve' | 'reject';
+  type: 'login_challenge';
 }
 
 @Injectable()
@@ -51,12 +70,15 @@ export class AuthService {
   private readonly refreshExpiresDays: number;
   private readonly otpTtlSeconds: number;
   private readonly otpResendSeconds: number;
+  private readonly loginChallengeTtlSeconds: number;
 
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     @InjectModel(Session.name) private readonly sessionModel: Model<SessionDocument>,
     @InjectModel(OtpSession.name)
     private readonly otpSessionModel: Model<OtpSessionDocument>,
+    @InjectModel(LoginChallenge.name)
+    private readonly loginChallengeModel: Model<LoginChallengeDocument>,
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
   ) {
@@ -70,6 +92,9 @@ export class AuthService {
     );
     this.otpResendSeconds = Number(
       this.configService.get<string>('OTP_RESEND_SECONDS') || '120',
+    );
+    this.loginChallengeTtlSeconds = Number(
+      this.configService.get<string>('LOGIN_CHALLENGE_EXPIRES_SECONDS') || '600',
     );
   }
 
@@ -196,13 +221,63 @@ export class AuthService {
       );
     }
 
+    const device = dto.device || SessionDevice.WEB;
+    const deviceName = dto.deviceName || 'Unknown Device';
+
+    const activeSessions = await this.sessionModel
+      .find({
+        userId: user._id,
+        isActive: true,
+        expiredAt: { $gt: new Date() },
+      })
+      .lean()
+      .exec();
+
+    // Strict mode: if this account already has any active session,
+    // require email challenge for the next login attempt.
+    const hasOtherActiveSession = activeSessions.length > 0;
+
+    if (hasOtherActiveSession) {
+      const now = new Date();
+      const challengeId = `LC_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
+      const expiresAt = new Date(
+        now.getTime() + this.loginChallengeTtlSeconds * 1000,
+      );
+
+      await this.loginChallengeModel.create({
+        challengeId,
+        userId: user._id,
+        email: user.email,
+        device,
+        deviceName,
+        ip,
+        status: LoginChallengeStatus.PENDING,
+        expiresAt,
+      });
+
+      await this.sendLoginChallengeEmail({
+        challengeId,
+        email: user.email,
+        device,
+        deviceName,
+        ip,
+      });
+
+      return ok('Need email confirmation for new device login', {
+        requiresEmailConfirmation: true,
+        challengeId,
+        email: user.email,
+        challengeExpiredAt: expiresAt.toISOString(),
+      });
+    }
+
     user.status = { isOnline: true, lastSeen: new Date() } as User['status'];
     await user.save();
 
     const tokens = await this.issueTokensAndSession(
       user,
-      dto.device || SessionDevice.WEB,
-      dto.deviceName || 'Unknown Device',
+      device,
+      deviceName,
       ip,
     );
 
@@ -392,7 +467,12 @@ export class AuthService {
       throwAppError(HttpStatus.NOT_FOUND, 'USER_NOT_FOUND', 'Khong tim thay user');
     }
 
-    const tokens = this.generateTokenPair(user._id.toString(), user.email, user.phone);
+    const tokens = this.generateTokenPair(
+      user._id.toString(),
+      user.email,
+      user.phone,
+      session._id.toString(),
+    );
 
     session.refreshToken = tokens.refreshToken;
     session.expiredAt = this.getRefreshExpiredAt();
@@ -591,6 +671,147 @@ export class AuthService {
     });
   }
 
+  async approveLoginChallenge(token: string) {
+    const payload = this.verifyLoginChallengeToken(token, 'approve');
+
+    const challenge = await this.loginChallengeModel
+      .findOne({ challengeId: payload.challengeId })
+      .exec();
+
+    if (!challenge || challenge.expiresAt < new Date()) {
+      throwAppError(
+        HttpStatus.BAD_REQUEST,
+        'LOGIN_CHALLENGE_INVALID_OR_EXPIRED',
+        'Yeu cau xac nhan dang nhap khong hop le hoac da het han',
+      );
+    }
+
+    if (challenge.status === LoginChallengeStatus.REJECTED) {
+      throwAppError(
+        HttpStatus.BAD_REQUEST,
+        'LOGIN_CHALLENGE_REJECTED',
+        'Yeu cau dang nhap da bi tu choi',
+      );
+    }
+
+    if (challenge.status === LoginChallengeStatus.CONSUMED) {
+      return ok('Login challenge already completed', {
+        challengeId: challenge.challengeId,
+        status: challenge.status,
+      });
+    }
+
+    challenge.status = LoginChallengeStatus.APPROVED;
+    challenge.approvedAt = new Date();
+    await challenge.save();
+
+    return ok('Da xac nhan dang nhap moi thanh cong', {
+      challengeId: challenge.challengeId,
+      status: challenge.status,
+    });
+  }
+
+  async rejectLoginChallenge(token: string) {
+    const payload = this.verifyLoginChallengeToken(token, 'reject');
+
+    const challenge = await this.loginChallengeModel
+      .findOne({ challengeId: payload.challengeId })
+      .exec();
+
+    if (!challenge || challenge.expiresAt < new Date()) {
+      throwAppError(
+        HttpStatus.BAD_REQUEST,
+        'LOGIN_CHALLENGE_INVALID_OR_EXPIRED',
+        'Yeu cau xac nhan dang nhap khong hop le hoac da het han',
+      );
+    }
+
+    if (challenge.status === LoginChallengeStatus.CONSUMED) {
+      return ok('Login challenge already completed', {
+        challengeId: challenge.challengeId,
+        status: challenge.status,
+      });
+    }
+
+    challenge.status = LoginChallengeStatus.REJECTED;
+    challenge.rejectedAt = new Date();
+    await challenge.save();
+
+    return ok('Da tu choi dang nhap moi', {
+      challengeId: challenge.challengeId,
+      status: challenge.status,
+    });
+  }
+
+  async loginChallengeStatus(dto: LoginChallengeStatusDto) {
+    const challenge = await this.loginChallengeModel
+      .findOne({ challengeId: dto.challengeId })
+      .exec();
+
+    if (!challenge || challenge.expiresAt < new Date()) {
+      throwAppError(
+        HttpStatus.BAD_REQUEST,
+        'LOGIN_CHALLENGE_INVALID_OR_EXPIRED',
+        'Yeu cau xac nhan dang nhap khong hop le hoac da het han',
+      );
+    }
+
+    if (challenge.status === LoginChallengeStatus.PENDING) {
+      return ok('Challenge is still pending', {
+        challengeId: challenge.challengeId,
+        status: challenge.status,
+      });
+    }
+
+    if (challenge.status === LoginChallengeStatus.REJECTED) {
+      throwAppError(
+        HttpStatus.UNAUTHORIZED,
+        'LOGIN_CHALLENGE_REJECTED',
+        'Dang nhap moi da bi tu choi',
+      );
+    }
+
+    if (challenge.status === LoginChallengeStatus.CONSUMED) {
+      throwAppError(
+        HttpStatus.BAD_REQUEST,
+        'LOGIN_CHALLENGE_ALREADY_COMPLETED',
+        'Yeu cau dang nhap da hoan tat',
+      );
+    }
+
+    const user = await this.userModel.findById(challenge.userId).exec();
+    if (!user) {
+      throwAppError(HttpStatus.NOT_FOUND, 'USER_NOT_FOUND', 'Khong tim thay user');
+    }
+
+    await this.sessionModel.updateMany(
+      { userId: user._id, isActive: true },
+      { $set: { isActive: false } },
+    );
+
+    user.status = { isOnline: true, lastSeen: new Date() } as User['status'];
+    await user.save();
+
+    const tokens = await this.issueTokensAndSession(
+      user,
+      this.parseSessionDevice(challenge.device),
+      challenge.deviceName,
+      challenge.ip,
+    );
+
+    challenge.status = LoginChallengeStatus.CONSUMED;
+    challenge.consumedAt = new Date();
+    await challenge.save();
+
+    return ok('Login confirmed. Old sessions revoked', {
+      challengeId: challenge.challengeId,
+      status: challenge.status,
+      user: this.toAuthUser(user),
+      tokens,
+      revokedOldSessions: true,
+    });
+  }
+
   async googleLogin(dto: GoogleLoginDto, ip: string) {
     const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
     if (!clientId) {
@@ -755,9 +976,10 @@ export class AuthService {
     userId: string,
     email: string,
     phone: string,
+    sessionId: string,
   ): TokenPair {
     const accessToken = this.jwtService.sign(
-      { sub: userId, email, phone, type: 'access' },
+      { sub: userId, sid: sessionId, email, phone, type: 'access' },
       {
         secret: this.configService.get<string>('JWT_ACCESS_SECRET') ||
           this.configService.get<string>('JWT_SECRET') ||
@@ -767,7 +989,7 @@ export class AuthService {
     );
 
     const refreshToken = this.jwtService.sign(
-      { sub: userId, email, phone, type: 'refresh' },
+      { sub: userId, sid: sessionId, email, phone, type: 'refresh' },
       {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET') ||
           this.configService.get<string>('JWT_SECRET') ||
@@ -791,21 +1013,25 @@ export class AuthService {
     deviceName: string,
     ip: string,
   ): Promise<TokenPair> {
-    const tokens = this.generateTokenPair(
-      user._id.toString(),
-      user.email,
-      user.phone,
-    );
-
-    await this.sessionModel.create({
+    const session = await this.sessionModel.create({
       userId: user._id,
       device,
       deviceName,
       ip,
-      refreshToken: tokens.refreshToken,
+      refreshToken: `TEMP_${new Types.ObjectId().toString()}_${Date.now()}`,
       expiredAt: this.getRefreshExpiredAt(),
       isActive: true,
     });
+
+    const tokens = this.generateTokenPair(
+      user._id.toString(),
+      user.email,
+      user.phone,
+      session._id.toString(),
+    );
+
+    session.refreshToken = tokens.refreshToken;
+    await session.save();
 
     return tokens;
   }
@@ -843,6 +1069,179 @@ export class AuthService {
     return Number.isFinite(n) && n > 0 ? n * 1000 : 15 * 60 * 1000;
   }
 
+  private parseSessionDevice(value: unknown): SessionDevice {
+    if (value === SessionDevice.ANDROID) return SessionDevice.ANDROID;
+    if (value === SessionDevice.IOS) return SessionDevice.IOS;
+    return SessionDevice.WEB;
+  }
+
+  private signLoginChallengeToken(
+    challengeId: string,
+    action: 'approve' | 'reject',
+  ): string {
+    return this.jwtService.sign(
+      {
+        challengeId,
+        action,
+        type: 'login_challenge',
+      } satisfies LoginChallengeTokenPayload,
+      {
+        secret:
+          this.configService.get<string>('LOGIN_CHALLENGE_SECRET') ||
+          this.configService.get<string>('JWT_SECRET') ||
+          'dev_login_challenge_secret',
+        expiresIn: this.loginChallengeTtlSeconds,
+      },
+    );
+  }
+
+  private verifyLoginChallengeToken(
+    token: string,
+    expectedAction: 'approve' | 'reject',
+  ): LoginChallengeTokenPayload {
+    let payload: LoginChallengeTokenPayload;
+
+    try {
+      payload = this.jwtService.verify<LoginChallengeTokenPayload>(token, {
+        secret:
+          this.configService.get<string>('LOGIN_CHALLENGE_SECRET') ||
+          this.configService.get<string>('JWT_SECRET') ||
+          'dev_login_challenge_secret',
+      });
+    } catch {
+      throwAppError(
+        HttpStatus.BAD_REQUEST,
+        'LOGIN_CHALLENGE_INVALID_OR_EXPIRED',
+        'Yeu cau xac nhan dang nhap khong hop le hoac da het han',
+      );
+    }
+
+    if (
+      payload.type !== 'login_challenge' ||
+      payload.action !== expectedAction ||
+      !payload.challengeId
+    ) {
+      throwAppError(
+        HttpStatus.BAD_REQUEST,
+        'LOGIN_CHALLENGE_INVALID_OR_EXPIRED',
+        'Yeu cau xac nhan dang nhap khong hop le hoac da het han',
+      );
+    }
+
+    return payload;
+  }
+
+  private async sendLoginChallengeEmail(params: {
+    challengeId: string;
+    email: string;
+    device: SessionDevice;
+    deviceName: string;
+    ip: string;
+  }): Promise<void> {
+    const { challengeId, email, device, deviceName, ip } = params;
+    const serverBaseUrl =
+      this.configService.get<string>('SERVER_PUBLIC_URL') ||
+      `http://localhost:${this.configService.get<string>('PORT') || '8081'}`;
+
+    const approveToken = this.signLoginChallengeToken(challengeId, 'approve');
+    const rejectToken = this.signLoginChallengeToken(challengeId, 'reject');
+
+    const approveUrl = `${serverBaseUrl}/auth/login/challenge/approve?token=${encodeURIComponent(approveToken)}`;
+    const rejectUrl = `${serverBaseUrl}/auth/login/challenge/reject?token=${encodeURIComponent(rejectToken)}`;
+
+    const host = this.configService.get<string>('SMTP_HOST');
+    const user = this.configService.get<string>('SMTP_USER');
+    const pass = this.configService.get<string>('SMTP_PASS');
+    const from = this.configService.get<string>('SMTP_FROM') || user;
+
+    if (!host || !user || !pass) {
+      throwAppError(
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        'INTERNAL_SERVER_ERROR',
+        'SMTP chua duoc cau hinh day du, khong the gui email xac nhan dang nhap',
+      );
+    }
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port: Number(this.configService.get<string>('SMTP_PORT') || '587'),
+      secure: this.configService.get<string>('SMTP_SECURE') === 'true',
+      auth: { user, pass },
+    });
+
+    const text = [
+      'He thong phat hien yeu cau dang nhap moi.',
+      `Thiet bi: ${deviceName} (${device})`,
+      `IP: ${ip}`,
+      '',
+      'Neu day la ban, bam link xac nhan:',
+      approveUrl,
+      '',
+      'Neu khong phai ban, bam link tu choi:',
+      rejectUrl,
+    ].join('\n');
+
+    const safeDeviceName = this.escapeHtml(deviceName);
+    const safeIp = this.escapeHtml(ip);
+    const safeChallengeId = this.escapeHtml(challengeId);
+
+    const html = `
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Xac nhan dang nhap moi</title>
+  </head>
+  <body style="margin:0;background:#f5f6f8;font-family:Segoe UI,Arial,sans-serif;color:#111827;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:24px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="620" cellspacing="0" cellpadding="0" style="max-width:620px;background:#ffffff;border-radius:16px;padding:28px;box-shadow:0 8px 24px rgba(0,0,0,.08);">
+            <tr><td style="font-size:12px;font-weight:700;color:#4f46e5;text-transform:uppercase;letter-spacing:.08em;">Zalo Chat Security</td></tr>
+            <tr><td style="padding-top:8px;font-size:24px;font-weight:700;color:#111827;">Phat hien dang nhap moi</td></tr>
+            <tr><td style="padding-top:10px;font-size:15px;line-height:1.65;color:#374151;">He thong ghi nhan mot yeu cau dang nhap moi vao tai khoan cua ban.</td></tr>
+            <tr>
+              <td style="padding-top:16px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:14px;">
+                  <tr><td style="font-size:14px;color:#374151;"><strong>Thiet bi:</strong> ${safeDeviceName} (${device})</td></tr>
+                  <tr><td style="font-size:14px;color:#374151;padding-top:8px;"><strong>IP:</strong> ${safeIp}</td></tr>
+                  <tr><td style="font-size:12px;color:#6b7280;padding-top:8px;">Challenge ID: ${safeChallengeId}</td></tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding-top:22px;">
+                <a href="${approveUrl}" style="display:inline-block;background:#16a34a;color:#ffffff;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:10px;">Dong y</a>
+                <a href="${rejectUrl}" style="display:inline-block;background:#dc2626;color:#ffffff;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:10px;margin-left:10px;">Tu choi</a>
+              </td>
+            </tr>
+            <tr><td style="padding-top:18px;font-size:13px;line-height:1.6;color:#6b7280;">Neu khong phai ban, hay bam <strong>Tu choi</strong> va doi mat khau ngay de bao ve tai khoan.</td></tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+    await transporter.sendMail({
+      from,
+      to: email,
+      subject: 'Zalo Chat - Xac nhan dang nhap moi',
+      text,
+      html,
+    });
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   private getRefreshExpiredAt(): Date {
     return new Date(Date.now() + this.refreshExpiresDays * 24 * 60 * 60 * 1000);
   }
@@ -876,8 +1275,14 @@ export class AuthService {
       await transporter.sendMail({
         from,
         to: email,
-        subject: 'Zalo Chat OTP',
-        text: `Ma OTP cua ban la: ${otp}. OTP co hieu luc trong ${this.otpTtlSeconds} giay.`,
+        subject:
+          purpose === OtpPurpose.LOGIN_NEW_DEVICE
+            ? 'Zalo Chat - Xac nhan dang nhap thiet bi moi'
+            : 'Zalo Chat OTP',
+        text:
+          purpose === OtpPurpose.LOGIN_NEW_DEVICE
+            ? `He thong phat hien mot dang nhap moi. Ma xac nhan cua ban la: ${otp}. OTP co hieu luc trong ${this.otpTtlSeconds} giay. Neu khong phai ban, hay doi mat khau ngay.`
+            : `Ma OTP cua ban la: ${otp}. OTP co hieu luc trong ${this.otpTtlSeconds} giay.`,
       });
       console.log(`[Email Sent] OTP sent to ${email} for ${purpose}`);
     } catch (err) {
