@@ -820,19 +820,51 @@ Quy tắc:
         : fileUrl
           ? [{ url: fileUrl, mimeType: fileMimeType }]
           : [];
-    if (normalizedFiles.length > 0) {
-      const lines = normalizedFiles
-        .map(
-          (f: { url: string; mimeType?: string; name?: string }) =>
-            `- ${f.name ? `${f.name} ` : ''}(url=${f.url}${f.mimeType ? ` mime=${f.mimeType}` : ''})`,
-        )
-        .join('\n');
-      userContent += `\n\n[File đính kèm]\n${lines}`;
+
+    // Rule: chỉ hỗ trợ "đọc/giải thích nội dung" PDF nếu liên quan "delivery".
+    // Nếu không liên quan delivery thì AI vẫn trả lời, nhưng phải từ chối xử lý file đó.
+    const msgLower = (message ?? '').toLowerCase();
+    const fileInfos: string[] = [];
+    const supportedFiles: Array<{
+      url: string;
+      mimeType?: string;
+      name?: string;
+    }> = [];
+    for (const f of normalizedFiles) {
+      const mime = (f.mimeType ?? '').toLowerCase();
+      const nameLower = (f.name ?? '').toLowerCase();
+      const isPdf = mime.includes('pdf') || nameLower.endsWith('.pdf');
+      const isDocx =
+        mime.includes(
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        ) || nameLower.endsWith('.docx');
+      const isDoc = mime.includes('application/msword') || nameLower.endsWith('.doc');
+      const isDelivery =
+        msgLower.includes('delivery') || nameLower.includes('delivery');
+
+      fileInfos.push(
+        `- ${f.name ? `${f.name} ` : ''}(url=${f.url}${f.mimeType ? ` mime=${f.mimeType}` : ''})`,
+      );
+
+      if ((isPdf || isDocx || isDoc) && !isDelivery) {
+        // Bỏ qua file này (không đưa vào phần "đọc file")
+        continue;
+      }
+
+      supportedFiles.push(f);
+    }
+
+    if (fileInfos.length > 0) {
+      userContent += `\n\n[File đính kèm]\n${fileInfos.join('\n')}`;
+      if (supportedFiles.length !== normalizedFiles.length) {
+        userContent +=
+          '\n\n[Lưu ý]\nCó file PDF không liên quan "delivery". Hãy từ chối đọc/giải thích nội dung các file đó và hướng dẫn người dùng gửi tài liệu delivery phù hợp.';
+      }
     }
 
     // Nạp nội dung file (text/pdf) để Groq thật sự "đọc" được
-    if (normalizedFiles.length > 0) {
-      userContent += await this.buildGroqFilesContext(normalizedFiles);
+    if (supportedFiles.length > 0) {
+      userContent += await this.buildGroqFilesContext(supportedFiles);
     }
     messages.push({ role: 'user', content: userContent });
 

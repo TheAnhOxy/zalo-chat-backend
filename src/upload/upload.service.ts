@@ -9,10 +9,25 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 @Injectable()
 export class UploadService {
   private readonly s3Client: S3Client;
-  private readonly allowedAudioContentTypes = new Set([
+  private readonly allowedContentTypes = new Set([
+    // audio
     'audio/mpeg',
     'audio/m4a',
     'audio/mp4',
+    // images
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+    // documents / text
+    'application/pdf',
+    'text/plain',
+    'text/csv',
+    'application/json',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    // fallback
+    'application/octet-stream',
   ]);
 
   constructor() {
@@ -83,15 +98,13 @@ export class UploadService {
   }
 
   private resolveContentType(fileName: string, contentType?: string): string {
-    const trimmedContentType = contentType?.trim();
+    const trimmedContentType = contentType?.trim().toLowerCase();
     if (trimmedContentType) {
-      if (this.allowedAudioContentTypes.has(trimmedContentType)) {
+      if (this.allowedContentTypes.has(trimmedContentType)) {
         return trimmedContentType;
       }
 
-      throw new BadRequestException(
-        'Unsupported contentType. Only audio/mpeg, audio/m4a, and audio/mp4 are allowed for voice uploads.',
-      );
+      throw new BadRequestException('Unsupported contentType.');
     }
 
     const lowerFileName = fileName.toLowerCase();
@@ -100,6 +113,39 @@ export class UploadService {
     }
     if (lowerFileName.endsWith('.m4a')) {
       return 'audio/m4a';
+    }
+    if (lowerFileName.endsWith('.mp4')) {
+      return 'audio/mp4';
+    }
+    if (lowerFileName.endsWith('.pdf')) {
+      return 'application/pdf';
+    }
+    if (lowerFileName.endsWith('.png')) {
+      return 'image/png';
+    }
+    if (lowerFileName.endsWith('.jpg') || lowerFileName.endsWith('.jpeg')) {
+      return 'image/jpeg';
+    }
+    if (lowerFileName.endsWith('.gif')) {
+      return 'image/gif';
+    }
+    if (lowerFileName.endsWith('.webp')) {
+      return 'image/webp';
+    }
+    if (lowerFileName.endsWith('.txt')) {
+      return 'text/plain';
+    }
+    if (lowerFileName.endsWith('.csv')) {
+      return 'text/csv';
+    }
+    if (lowerFileName.endsWith('.json')) {
+      return 'application/json';
+    }
+    if (lowerFileName.endsWith('.doc')) {
+      return 'application/msword';
+    }
+    if (lowerFileName.endsWith('.docx')) {
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     }
 
     return 'application/octet-stream';
