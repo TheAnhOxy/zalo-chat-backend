@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AppController } from './app.controller';
@@ -17,6 +18,7 @@ import { getMongoConfig } from './config/mongo.config';
 import { UploadModule } from './upload/upload.module';
 import { AuthModule } from './auth/auth.module';
 import { ChatbotModule } from './chatbot/chatbot.module';
+import { OptionalAccessSessionGuard } from './auth/guards/optional-access-session.guard';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -43,6 +45,12 @@ import { ChatbotModule } from './chatbot/chatbot.module';
     ChatbotModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: OptionalAccessSessionGuard,
+    },
+  ],
 })
 export class AppModule {}

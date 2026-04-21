@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpException,
+  Param,
+  Post,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -13,6 +24,7 @@ import { LogoutAllDto } from './dto/logout-all.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginPhoneRequestOtpDto } from './dto/login-phone-request-otp.dto';
 import { GoogleLoginDto } from './dto/google-login.dto';
+import { LoginChallengeStatusDto } from './dto/login-challenge-status.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -40,6 +52,81 @@ export class AuthController {
     @Req() req: Request,
   ): Promise<Record<string, unknown>> {
     return this.authService.login(dto, this.extractIp(req)).then((x) => x.body);
+  }
+
+  @Post('login/challenge-status')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Check login challenge status and issue token if approved' })
+  loginChallengeStatus(@Body() dto: LoginChallengeStatusDto): Promise<Record<string, unknown>> {
+    return this.authService.loginChallengeStatus(dto).then((x) => x.body);
+  }
+
+  @Get('login/challenge/approve')
+  @ApiOperation({ summary: 'Approve login challenge from email link' })
+  async approveLoginChallenge(
+    @Query('token') token: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    try {
+      await this.authService.approveLoginChallenge(token);
+      res
+        .status(200)
+        .contentType('text/html; charset=utf-8')
+        .send(
+          this.renderLoginChallengePage({
+            title: 'Xac nhan thanh cong',
+            message:
+              'Ban da dong y dang nhap thiet bi moi. Vui long quay lai ung dung de tiep tuc.',
+            positive: true,
+          }),
+        );
+    } catch (err) {
+      const message = this.extractErrorMessage(err);
+      res
+        .status(400)
+        .contentType('text/html; charset=utf-8')
+        .send(
+          this.renderLoginChallengePage({
+            title: 'Khong the xac nhan',
+            message,
+            positive: false,
+          }),
+        );
+    }
+  }
+
+  @Get('login/challenge/reject')
+  @ApiOperation({ summary: 'Reject login challenge from email link' })
+  async rejectLoginChallenge(
+    @Query('token') token: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    try {
+      await this.authService.rejectLoginChallenge(token);
+      res
+        .status(200)
+        .contentType('text/html; charset=utf-8')
+        .send(
+          this.renderLoginChallengePage({
+            title: 'Da tu choi dang nhap',
+            message:
+              'Yeu cau dang nhap moi da bi tu choi. Neu ban thay bat thuong, hay doi mat khau ngay.',
+            positive: false,
+          }),
+        );
+    } catch (err) {
+      const message = this.extractErrorMessage(err);
+      res
+        .status(400)
+        .contentType('text/html; charset=utf-8')
+        .send(
+          this.renderLoginChallengePage({
+            title: 'Khong the tu choi',
+            message,
+            positive: false,
+          }),
+        );
+    }
   }
 
   @Post('forgot-password/request-otp')
@@ -146,5 +233,56 @@ export class AuthController {
       return xForwardedFor.split(',')[0].trim();
     }
     return req.ip || '0.0.0.0';
+  }
+
+  private extractErrorMessage(err: unknown): string {
+    if (err instanceof HttpException) {
+      const response = err.getResponse() as
+        | string
+        | { error?: { message?: string }; message?: string };
+
+      if (typeof response === 'string') return response;
+      if (response?.error?.message) return response.error.message;
+      if (response?.message) return response.message;
+    }
+
+    return 'Yeu cau khong hop le hoac da het han.';
+  }
+
+  private renderLoginChallengePage(params: {
+    title: string;
+    message: string;
+    positive: boolean;
+  }): string {
+    const { title, message, positive } = params;
+    const accent = positive ? '#16a34a' : '#dc2626';
+
+    return `<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${title}</title>
+    <style>
+      body { margin:0; background:#f3f4f6; font-family:Segoe UI, Arial, sans-serif; color:#111827; }
+      .wrap { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+      .card { width:100%; max-width:520px; background:#ffffff; border-radius:16px; padding:28px; box-shadow:0 12px 32px rgba(0,0,0,.12); }
+      .badge { display:inline-block; padding:6px 12px; border-radius:999px; font-size:12px; font-weight:700; color:#fff; background:${accent}; }
+      h1 { margin:14px 0 10px; font-size:24px; line-height:1.2; }
+      p { margin:0; font-size:16px; line-height:1.6; color:#374151; }
+      .note { margin-top:18px; font-size:13px; color:#6b7280; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <span class="badge">Zalo Chat Security</span>
+        <h1>${title}</h1>
+        <p>${message}</p>
+        <p class="note">Ban co the quay lai ung dung de tiep tuc.</p>
+      </div>
+    </div>
+  </body>
+</html>`;
   }
 }
