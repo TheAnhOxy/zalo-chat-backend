@@ -208,6 +208,29 @@ export class CallsGateway implements OnGatewayConnection {
     client.to(data.conversationId).emit('ice_candidate', payload);
   }
 
+  @SubscribeMessage('call_offer')
+  handleCallOffer(
+    @MessageBody()
+    data: {
+      conversationId: string;
+      callId?: string;
+      targetId: string;
+      sourceId?: string;
+      offer: any;
+    },
+    @ConnectedSocket() client: Socket,
+  ) {
+    if (!data.targetId) return;
+
+    this.server.to(data.targetId).emit('call_offer', {
+      conversationId: data.conversationId,
+      callId: data.callId,
+      sourceId: data.sourceId ?? (client.handshake.query.userId as string),
+      targetId: data.targetId,
+      offer: data.offer,
+    });
+  }
+
   /**
    * 4. Kết thúc cuộc gọi
    * Tính toán thời lượng (duration) và cập nhật DB
