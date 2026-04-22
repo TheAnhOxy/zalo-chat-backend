@@ -14,7 +14,7 @@ import { UsersService } from '../../users/users.service'; // 👈 Cần import U
 import { FriendshipsService } from '../../friendships/friendships.service';
 import { ConversationsService } from '../../conversations/conversations.service';
 import { CreateMessageDto } from '../dto/create-message.dto';
-import { ReactionType } from '../schemas/message.schema';
+import { MessageStatus, MessageType, ReactionType } from '../schemas/message.schema';
 import { instrument } from '@socket.io/admin-ui';
 import { UsePipes, ValidationPipe, Logger } from '@nestjs/common';
 
@@ -334,5 +334,104 @@ export class MessagesGateway
     const updatedMsg = await this.messagesService.addDeletedBy(data.messageId, data.userId);
     client.emit('message_deleted_local', { messageId: data.messageId });
     return updatedMsg;
+  }
+
+  @SubscribeMessage('pin_message')
+  async handlePinMessage(
+    @MessageBody()
+    data: { messageId: string; conversationId: string; userId: string },
+  ) {
+    try {
+      const { messageId, conversationId, userId } = data;
+      if (!messageId || !conversationId || !userId) {
+        return { status: 'error', message: 'Thiếu messageId/conversationId/userId' };
+      }
+
+      const [updatedMessage, pinResult] = await Promise.all([
+        this.messagesService.update(messageId, { isPinned: true }),
+        this.conversationsService.addPinnedMessageId(conversationId, messageId),
+      ]);
+
+      let systemMessage: Record<string, unknown> | null = null;
+      if (pinResult.wasAdded) {
+        systemMessage = await this.messagesService.create({
+          conversationId,
+          senderId: userId,
+          type: MessageType.SYSTEM,
+          content: 'Bạn đã ghim một tin nhắn',
+          metadata: {
+            fileName: '',
+            fileSize: null,
+            thumbnail: '',
+            lat: null,
+            lng: null,
+            duration: null,
+            systemAction: 'PINNED',
+            pinnedMessageId: messageId,
+            conversationId,
+            system: true,
+          } as never,
+          status: MessageStatus.SENT,
+        });
+        this.server.to(conversationId).emit('new_message', systemMessage);
+      }
+
+      const payload = {
+        conversationId,
+        messageId,
+        action: 'PINNED',
+        message: updatedMessage,
+      };
+      this.server.to(conversationId).emit('message_pinned_update', payload);
+
+      return {
+        ...payload,
+        systemMessage,
+      };
+    } catch (error) {
+      if (error instanceof Error) {
+        this.logger.error(`pin_message error: ${error.message}`);
+        return { status: 'error', message: error.message };
+      }
+
+      this.logger.error(`pin_message error: ${String(error)}`);
+      return { status: 'error', message: 'Unknown error' };
+    }
+  }
+
+  @SubscribeMessage('unpin_message')
+  async handleUnpinMessage(
+    @MessageBody()
+    data: { messageId: string; conversationId: string; userId: string },
+  ) {
+    try {
+      const { messageId, conversationId, userId } = data;
+      if (!messageId || !conversationId) {
+        return { status: 'error', message: 'Thiếu messageId/conversationId' };
+      }
+
+      const [updatedMessage] = await Promise.all([
+        this.messagesService.update(messageId, { isPinned: false }),
+        this.conversationsService.removePinnedMessageId(conversationId, messageId),
+      ]);
+
+      const payload = {
+        conversationId,
+        messageId,
+        action: 'UNPINNED',
+        message: updatedMessage,
+      };
+
+      this.server.to(conversationId).emit('message_pinned_update', payload);
+      return payload;
+    } catch (error) {
+      if (error instanceof Error) {
+        this.logger.error(`unpin_message error: ${error.message}`);
+        return { status: 'error', message: error.message };
+      }
+
+      this.logger.error(`unpin_message error: ${String(error)}`);
+      return { status: 'error', message: 'Unknown error' };
+    }
   }
 }

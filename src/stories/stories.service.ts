@@ -5,11 +5,35 @@ import { Story, StoryDocument } from './schemas/story.schema';
 import { CreateStoryDto } from './dto/create-story.dto';
 import { UpdateStoryDto } from './dto/update-story.dto';
 import { toPlainDoc } from '../common/mongo-plain';
+import { FriendshipsService } from '../friendships/friendships.service';
+
+/** Chuyển lean document (plain JS object) sang Record chuẩn hóa: _id → string */
+function leanToPlain(doc: any): Record<string, unknown> {
+  const plain: any = { ...doc };
+  if (plain._id) plain._id = plain._id.toString();
+  if (plain.userId && typeof plain.userId === 'object') {
+    if (plain.userId._id) {
+      // populated
+      plain.userName = plain.userId.fullName;
+      plain.userAvatar = plain.userId.avatar;
+      plain.userId = plain.userId._id.toString();
+    } else {
+      plain.userId = plain.userId.toString();
+    }
+  }
+  if (Array.isArray(plain.viewers)) {
+    plain.viewers = plain.viewers.map((v: any) =>
+      typeof v === 'object' ? v.toString() : v,
+    );
+  }
+  return plain as Record<string, unknown>;
+}
 
 @Injectable()
 export class StoriesService {
   constructor(
     @InjectModel(Story.name) private storyModel: Model<StoryDocument>,
+    private readonly friendshipsService: FriendshipsService,
   ) {}
 
   async create(dto: CreateStoryDto): Promise<Record<string, unknown>> {
@@ -23,16 +47,24 @@ export class StoriesService {
     });
 
     const saved = await doc.save();
-    return toPlainDoc(saved);
+    const populated = await saved.populate('userId', 'fullName avatar');
+    const plain = toPlainDoc(populated) as any;
+    if (populated.userId && typeof populated.userId === 'object') {
+      plain.userId = (populated.userId as any)._id.toString();
+      plain.userName = (populated.userId as any).fullName;
+      plain.userAvatar = (populated.userId as any).avatar;
+    }
+    return plain;
   }
 
   async findAll(): Promise<Record<string, unknown>[]> {
     const list = await this.storyModel
       .find()
+      .populate('userId', 'fullName avatar')
       .sort({ createdAt: -1 })
       .lean()
       .exec();
-    return list as Record<string, unknown>[];
+    return list.map(leanToPlain);
   }
 
   async findById(id: string): Promise<Record<string, unknown>> {
@@ -65,13 +97,109 @@ export class StoriesService {
 
     const list = await this.storyModel
       .find(filter)
+      .populate('userId', 'fullName avatar')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean()
       .exec();
 
-    return list as Record<string, unknown>[];
+    return list.map(leanToPlain);
+  }
+
+  async getStoryFeed(userId: string): Promise<any[]> {
+    if (!Types.ObjectId.isValid(userId)) return [];
+    
+    // 1. Get friend list + me
+    const friendIds = await this.friendshipsService.findAcceptedFriendIdsByUserId(userId);
+    const validUserIds = [userId, ...friendIds].map((id) => new Types.ObjectId(id));
+    
+    // 2. Aggregate query
+    const now = new Date();
+    const groups = await this.storyModel.aggregate([
+      // $match userId in validUserIds and expiresAt > now
+      {
+        $match: {
+          userId: { $in: validUserIds },
+          expiresAt: { $gt: now },
+        },
+      },
+      // $sort by createdAt ASC inside the group
+      { $sort: { createdAt: 1 } },
+      // $group by userId
+      {
+        $group: {
+          _id: '$userId',
+          stories: { $push: '$$ROOT' },
+          lastStoryTime: { $last: '$createdAt' },
+        },
+      },
+      // Lookup user populate
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'userDetails',
+        },
+      },
+      {
+        $unwind: {
+          path: '$userDetails',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      // Sort groups by lastStoryTime DESC
+      { $sort: { lastStoryTime: -1 } },
+    ]);
+
+    // 3. Format the response
+    return groups.map((g) => {
+      // Map stories to normal output formatting
+      const plainStories = g.stories.map((s: any) => {
+        const p = { ...s };
+        p._id = p._id.toString();
+        p.userId = p.userId.toString();
+        if (p.viewers) {
+          p.viewers = p.viewers.map((v: any) => v.toString());
+        }
+        return p;
+      });
+
+      const user = g.userDetails
+        ? {
+            id: g.userDetails._id.toString(),
+            fullName: g.userDetails.fullName,
+            avatar: g.userDetails.avatar,
+          }
+        : { id: g._id.toString() };
+
+      const hasUnseen = plainStories.some(
+        (s: any) => !(s.viewers || []).includes(userId),
+      );
+
+      return {
+        user,
+        hasUnseen,
+        lastStoryTime: g.lastStoryTime,
+        stories: plainStories,
+      };
+    });
+  }
+
+  async findExplore(userId: string, limit = 20): Promise<Record<string, unknown>[]> {
+    const list = await this.storyModel
+      .find({
+        userId: { $ne: new Types.ObjectId(userId) },
+        expiresAt: { $gt: new Date() },
+      })
+      .populate('userId', 'fullName avatar')
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean()
+      .exec();
+
+    return list.map(leanToPlain);
   }
 
   async update(id: string, dto: UpdateStoryDto): Promise<Record<string, unknown>> {
