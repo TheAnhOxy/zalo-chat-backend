@@ -46,9 +46,15 @@ export class StoriesController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Danh sách stories' })
+  @ApiOperation({ summary: 'Danh sách stories (cũ)' })
   findAll() {
     return this.storiesService.findAll();
+  }
+
+  @Get('feed/:userId')
+  @ApiOperation({ summary: 'Lấy danh sách story group theo Facebook/Zalo logic' })
+  getStoryFeed(@Param('userId') userId: string) {
+    return this.storiesService.getStoryFeed(userId);
   }
 
   @Get('user/:userId')
