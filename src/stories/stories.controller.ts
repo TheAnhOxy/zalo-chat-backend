@@ -16,15 +16,33 @@ import { CreateStoryDto } from './dto/create-story.dto';
 import { UpdateStoryDto } from './dto/update-story.dto';
 import { AddStoryViewerDto } from './dto/add-viewer.dto';
 
+import { StoriesGateway } from './gateways/stories.gateway';
+
 @ApiTags('Stories')
 @Controller('stories')
 export class StoriesController {
-  constructor(private readonly storiesService: StoriesService) {}
+  constructor(
+    private readonly storiesService: StoriesService,
+    private readonly storiesGateway: StoriesGateway,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Đăng story (IMAGE / VIDEO)' })
-  create(@Body() dto: CreateStoryDto) {
-    return this.storiesService.create(dto);
+  async create(@Body() dto: CreateStoryDto) {
+    const saved = await this.storiesService.create(dto);
+    this.storiesGateway.broadcastNewStory(saved);
+    return saved;
+  }
+
+  @Get('explore')
+  @ApiOperation({ summary: 'Xem explore feed (public)' })
+  @ApiQuery({ name: 'excludeUserId', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  findExplore(
+    @Query('excludeUserId') excludeUserId?: string,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
+  ) {
+    return this.storiesService.findExplore(excludeUserId ?? '', limit ?? 20);
   }
 
   @Get()
