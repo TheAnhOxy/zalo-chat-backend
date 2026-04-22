@@ -117,6 +117,12 @@ export class Conversation {
   members: ConversationMember[];
 
   @Prop({
+    type: [{ type: Types.ObjectId, ref: 'Message' }],
+    default: [],
+  })
+  pinnedMessageIds: Types.ObjectId[];
+
+  @Prop({
     type: LastMessageMongoSchema,
     default: null,
   })

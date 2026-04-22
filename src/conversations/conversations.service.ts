@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { Message, MessageDocument } from '../messages/schemas/message.schema';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import {
   Conversation,
@@ -28,6 +29,8 @@ export class ConversationsService {
   constructor(
     @InjectModel(Conversation.name)
     private conversationModel: Model<ConversationDocument>,
+    @InjectModel(Message.name)
+    private messageModel: Model<MessageDocument>,
     private readonly configService: ConfigService,
   ) {}
 
@@ -217,7 +220,11 @@ export class ConversationsService {
   }
 
   async findAll(): Promise<Record<string, unknown>[]> {
-    const list = await this.conversationModel.find().lean().exec();
+    const list = await this.conversationModel
+      .find()
+      .populate('pinnedMessageIds')
+      .lean()
+      .exec();
     return list as Record<string, unknown>[];
   }
 
@@ -225,7 +232,11 @@ export class ConversationsService {
     if (!Types.ObjectId.isValid(id)) {
       throw new NotFoundException('Không tìm thấy conversation');
     }
-    const row = await this.conversationModel.findById(id).lean().exec();
+    const row = await this.conversationModel
+      .findById(id)
+      .populate('pinnedMessageIds')
+      .lean()
+      .exec();
     if (!row) {
       throw new NotFoundException('Không tìm thấy conversation');
     }
@@ -240,6 +251,21 @@ export class ConversationsService {
     const conversations = await this.conversationModel.aggregate([
       {
         $match: { 'members.userId': userObjId },
+      },
+      {
+        $lookup: {
+          from: 'messages',
+          let: { pinnedIds: '$pinnedMessageIds' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $in: ['$_id', { $ifNull: ['$$pinnedIds', []] }] },
+              },
+            },
+            { $sort: { pinnedAt: -1, createdAt: -1 } },
+          ],
+          as: 'pinnedMessageIds',
+        },
       },
       {
         $lookup: {
@@ -364,6 +390,92 @@ export class ConversationsService {
     if (!res) {
       throw new NotFoundException('Không tìm thấy conversation');
     }
+  }
+
+  async addPinnedMessageId(
+    conversationId: string,
+    messageId: string,
+  ): Promise<{ wasAdded: boolean }> {
+    if (!Types.ObjectId.isValid(conversationId)) {
+      throw new NotFoundException('Conversation ID không hợp lệ');
+    }
+    if (!Types.ObjectId.isValid(messageId)) {
+      throw new NotFoundException('Message ID không hợp lệ');
+    }
+
+    const cid = new Types.ObjectId(conversationId);
+    const mid = new Types.ObjectId(messageId);
+
+    const messageExists = await this.messageModel.exists({
+      _id: mid,
+      conversationId: cid,
+    });
+    if (!messageExists) {
+      throw new NotFoundException('Tin nhắn không thuộc hội thoại này');
+    }
+
+    const result = await this.conversationModel.updateOne(
+      { _id: cid },
+      { $addToSet: { pinnedMessageIds: mid } },
+    );
+
+    if (!result.matchedCount) {
+      throw new NotFoundException('Không tìm thấy conversation');
+    }
+
+    return { wasAdded: result.modifiedCount > 0 };
+  }
+
+  async removePinnedMessageId(
+    conversationId: string,
+    messageId: string,
+  ): Promise<{ wasRemoved: boolean }> {
+    if (!Types.ObjectId.isValid(conversationId)) {
+      throw new NotFoundException('Conversation ID không hợp lệ');
+    }
+    if (!Types.ObjectId.isValid(messageId)) {
+      throw new NotFoundException('Message ID không hợp lệ');
+    }
+
+    const cid = new Types.ObjectId(conversationId);
+    const mid = new Types.ObjectId(messageId);
+
+    const result = await this.conversationModel.updateOne(
+      { _id: cid },
+      { $pull: { pinnedMessageIds: mid } },
+    );
+
+    if (!result.matchedCount) {
+      throw new NotFoundException('Không tìm thấy conversation');
+    }
+
+    return { wasRemoved: result.modifiedCount > 0 };
+  }
+
+  async findPinnedMessages(conversationId: string): Promise<Record<string, unknown>[]> {
+    if (!Types.ObjectId.isValid(conversationId)) {
+      throw new NotFoundException('Conversation ID không hợp lệ');
+    }
+
+    const conversation = await this.conversationModel
+      .findById(conversationId)
+      .populate({
+        path: 'pinnedMessageIds',
+        options: { sort: { pinnedAt: -1, createdAt: -1 } },
+        populate: [{ path: 'senderId' }, { path: 'replyTo' }],
+      })
+      .lean()
+      .exec();
+
+    if (!conversation) {
+      throw new NotFoundException('Không tìm thấy conversation');
+    }
+
+    const pinnedMessages = conversation.pinnedMessageIds as unknown as Record<
+      string,
+      unknown
+    >[];
+    return (pinnedMessages ?? []).filter(Boolean);
   }
 
   private mapMembers(members: ConversationMemberDto[]) {
