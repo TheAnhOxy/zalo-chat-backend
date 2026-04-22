@@ -332,8 +332,10 @@ export class CallsGateway implements OnGatewayConnection {
     if (!isGroup) {
       this.server.to(data.conversationId).emit('conversation_call_updated', {
         conversationId: data.conversationId,
+        senderId: call?.callerId?.toString() ?? '',
         lastMessage: {
           content: lastContent,
+          senderId: call?.callerId?.toString() ?? '',
           createdAt: new Date().toISOString(),
         },
       });
