@@ -26,6 +26,7 @@ function leanToPlain(doc: any): Record<string, unknown> {
       typeof v === 'object' ? v.toString() : v,
     );
   }
+  if (plain.thumbnailUrl) plain.thumbnailUrl = plain.thumbnailUrl.toString();
   return plain as Record<string, unknown>;
 }
 
@@ -44,6 +45,7 @@ export class StoriesService {
       caption: dto.caption ?? '',
       viewers: (dto.viewers ?? []).map((id) => new Types.ObjectId(id)),
       expiresAt: new Date(dto.expiresAt),
+      thumbnailUrl: dto.thumbnailUrl,
     });
 
     const saved = await doc.save();
@@ -59,7 +61,9 @@ export class StoriesService {
 
   async findAll(): Promise<Record<string, unknown>[]> {
     const list = await this.storyModel
-      .find()
+      .find({
+        expiresAt: { $gt: new Date() },
+      })
       .populate('userId', 'fullName avatar')
       .sort({ createdAt: -1 })
       .lean()
@@ -212,6 +216,7 @@ export class StoriesService {
     if (dto.type !== undefined) doc.type = dto.type;
     if (dto.caption !== undefined) doc.caption = dto.caption;
     if (dto.expiresAt !== undefined) doc.expiresAt = new Date(dto.expiresAt);
+    if (dto.thumbnailUrl !== undefined) doc.thumbnailUrl = dto.thumbnailUrl;
     if (dto.viewers !== undefined) {
       doc.viewers = dto.viewers.map((x) => new Types.ObjectId(x));
     }
