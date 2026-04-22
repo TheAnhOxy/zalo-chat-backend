@@ -94,6 +94,12 @@ export class ConversationsController {
     return this.conversationsService.findById(id);
   }
 
+  @Get(':id/pinned-messages')
+  @ApiOperation({ summary: 'Danh sách đầy đủ các tin nhắn đã ghim của hội thoại' })
+  findPinnedMessages(@Param('id') id: string) {
+    return this.conversationsService.findPinnedMessages(id);
+  }
+
   @Get(':id/invite-link')
   @ApiOperation({ summary: 'Lấy/tạo link mời vào nhóm' })
   getInviteLink(@Param('id') id: string) {

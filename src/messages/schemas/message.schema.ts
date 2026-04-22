@@ -11,6 +11,7 @@ export enum MessageType {
   VOICE = 'VOICE',
   LOCATION = 'LOCATION',
   CONTACT = 'CONTACT',
+  SYSTEM = 'SYSTEM',
 }
 
 export enum MessageStatus {
