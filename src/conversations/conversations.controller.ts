@@ -132,6 +132,19 @@ export class ConversationsController {
     return this.conversationsService.update(id, dto);
   }
 
+  @Patch(':id/pin')
+  @ApiOperation({ summary: 'Ghim/Bỏ ghim hội thoại cho 1 user (realtime)' })
+  setPinnedForUser(
+    @Param('id') id: string,
+    @Body() body: { userId: string; isPinned: boolean },
+  ) {
+    return this.conversationsService.setPinnedForUser(
+      id,
+      body.userId,
+      body.isPinned,
+    );
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Xóa conversation' })
   remove(@Param('id') id: string) {

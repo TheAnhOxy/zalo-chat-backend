@@ -19,8 +19,10 @@ import { UploadModule } from './upload/upload.module';
 import { AuthModule } from './auth/auth.module';
 import { ChatbotModule } from './chatbot/chatbot.module';
 import { OptionalAccessSessionGuard } from './auth/guards/optional-access-session.guard';
+import { RealtimeModule } from './realtime/realtime.module';
 @Module({
   imports: [
+    RealtimeModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',

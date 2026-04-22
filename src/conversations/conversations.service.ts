@@ -21,6 +21,7 @@ import { UpdateConversationDto } from './dto/update-conversation.dto';
 import { ConversationMemberDto } from './dto/conversation-member.dto';
 import { LastMessageDto } from './dto/last-message.dto';
 import { toPlainDoc } from '../common/mongo-plain';
+import { RealtimeService } from '../realtime/realtime.service';
 
 @Injectable()
 export class ConversationsService {
@@ -32,6 +33,7 @@ export class ConversationsService {
     @InjectModel(Message.name)
     private messageModel: Model<MessageDocument>,
     private readonly configService: ConfigService,
+    private readonly realtimeService: RealtimeService,
   ) {}
 
   private ensureGroupSettings(doc: ConversationDocument): void {
@@ -216,7 +218,23 @@ export class ConversationsService {
     });
 
     const saved = await doc.save();
-    return toPlainDoc(saved);
+    const plain = toPlainDoc(saved);
+
+    // Realtime: báo "tạo conversation" cho tất cả thành viên
+    try {
+      const memberIds = (dto.members ?? []).map((m) => String(m.userId));
+      for (const uid of memberIds) {
+        if (!uid) continue;
+        this.realtimeService.emitToRoom(uid, 'conversation_created', {
+          conversation: plain,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch {
+      // ignore realtime failures
+    }
+
+    return plain;
   }
 
   async findAll(): Promise<Record<string, unknown>[]> {
@@ -252,6 +270,42 @@ export class ConversationsService {
       {
         $match: { 'members.userId': userObjId },
       },
+      // Last message theo từng user: bỏ qua tin đã bị "xóa lịch sử phía tôi" (deletedBy chứa userId)
+      {
+        $lookup: {
+          from: 'messages',
+          let: { cid: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$conversationId', '$$cid'] },
+                    { $eq: ['$isRecalled', false] },
+                    {
+                      $not: {
+                        $in: [userObjId, { $ifNull: ['$deletedBy', []] }],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+            { $sort: { createdAt: -1 } },
+            { $limit: 1 },
+            {
+              $project: {
+                _id: 0,
+                messageId: '$_id',
+                content: 1,
+                senderId: 1,
+                createdAt: 1,
+              },
+            },
+          ],
+          as: 'lastVisibleMessage',
+        },
+      },
       {
         $lookup: {
           from: 'messages',
@@ -277,6 +331,10 @@ export class ConversationsService {
       },
       {
         $addFields: {
+          // override lastMessage cho đúng theo user hiện tại
+          lastMessage: {
+            $ifNull: [{ $arrayElemAt: ['$lastVisibleMessage', 0] }, null],
+          },
           unreadCount: {
             $size: {
               $filter: {
@@ -286,6 +344,11 @@ export class ConversationsService {
                   $and: [
                     { $ne: ['$$msg.senderId', userObjId] }, // Không phải tin của mình
                     { $eq: ['$$msg.isRecalled', false] },
+                    {
+                      $not: {
+                        $in: [userObjId, { $ifNull: ['$$msg.deletedBy', []] }],
+                      },
+                    },
                     {
                       $not: {
                         $in: [
@@ -302,7 +365,7 @@ export class ConversationsService {
         },
       },
       { $sort: { updatedAt: -1 } },
-      { $project: { allMessages: 0 } }, // bỏ bớt dữ liệu thừa
+      { $project: { allMessages: 0, lastVisibleMessage: 0 } }, // bỏ bớt dữ liệu thừa
     ]);
 
     return conversations as Record<string, unknown>[];
@@ -339,6 +402,17 @@ export class ConversationsService {
       throw new NotFoundException('Không tìm thấy conversation');
     }
 
+    const beforeName = doc.name;
+    const beforeAvatar = doc.avatar;
+    const beforeDescription = doc.description;
+    const beforeMemberIds = (doc.members ?? []).map((m) => String(m.userId));
+    const beforeMembers = JSON.stringify(
+      (doc.members ?? []).map((m) => ({
+        userId: String(m.userId),
+        role: String((m as unknown as { role?: string }).role ?? ''),
+      })),
+    );
+
     if (dto.type !== undefined) doc.type = dto.type;
     if (dto.name !== undefined) doc.name = dto.name;
     if (dto.avatar !== undefined) doc.avatar = dto.avatar;
@@ -358,6 +432,62 @@ export class ConversationsService {
     }
 
     await doc.save();
+
+    const nameChanged = beforeName !== doc.name;
+    const avatarChanged = beforeAvatar !== doc.avatar;
+    const descChanged = beforeDescription !== doc.description;
+    const afterMembers = JSON.stringify(
+      (doc.members ?? []).map((m) => ({
+        userId: String(m.userId),
+        role: String((m as unknown as { role?: string }).role ?? ''),
+      })),
+    );
+    const membersChanged = beforeMembers !== afterMembers;
+
+    if (nameChanged || avatarChanged || descChanged || membersChanged) {
+      const updatedAt = (doc as unknown as { updatedAt?: Date }).updatedAt;
+      const payload = {
+        conversationId: String(doc._id),
+        name: doc.name ?? '',
+        avatar: doc.avatar ?? '',
+        description: doc.description ?? '',
+        memberCount: (doc.members ?? []).length,
+        members: (doc.members ?? []).map((m) => ({
+          userId: String(m.userId),
+          role: (m as unknown as { role?: string }).role ?? 'MEMBER',
+        })),
+        updatedAt: updatedAt?.toISOString?.() ?? new Date().toISOString(),
+      };
+
+      // Room theo conversation (client đã join_conversation sẽ nhận)
+      this.realtimeService.emitToRoom(
+        String(doc._id),
+        'conversation_updated',
+        payload,
+      );
+
+      // Room theo userId (join_user_room) để các màn danh sách vẫn cập nhật
+      const memberIds = (doc.members ?? []).map((m) => String(m.userId));
+      for (const uid of memberIds) {
+        if (!uid) continue;
+        this.realtimeService.emitToRoom(uid, 'conversation_updated', payload);
+      }
+
+      // Với user bị remove khỏi members: cần thông báo để client tự remove khỏi list/chat.
+      if (membersChanged) {
+        const afterSet = new Set(memberIds);
+        const removed = beforeMemberIds.filter(
+          (uid) => uid && !afterSet.has(uid),
+        );
+        for (const uid of removed) {
+          this.realtimeService.emitToRoom(uid, 'conversation_removed', {
+            conversationId: String(doc._id),
+            updatedAt: updatedAt?.toISOString?.() ?? new Date().toISOString(),
+          });
+        }
+      }
+    }
+
     return toPlainDoc(doc);
   }
 
@@ -386,10 +516,76 @@ export class ConversationsService {
   }
 
   async remove(id: string): Promise<void> {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new NotFoundException('Conversation ID không hợp lệ');
+    }
+
+    const doc = await this.conversationModel
+      .findById(id)
+      .select('members.userId')
+      .lean()
+      .exec();
+    if (!doc) {
+      throw new NotFoundException('Không tìm thấy conversation');
+    }
+
+    const memberIds = (doc.members ?? []).map((m) => String(m.userId));
+
     const res = await this.conversationModel.findByIdAndDelete(id).exec();
     if (!res) {
       throw new NotFoundException('Không tìm thấy conversation');
     }
+
+    const payload = {
+      conversationId: String(id),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Emit về room conversation (ai đang join_conversation)
+    this.realtimeService.emitToRoom(
+      String(id),
+      'conversation_removed',
+      payload,
+    );
+
+    // Emit về room userId để các màn danh sách tự remove realtime
+    for (const uid of memberIds) {
+      if (!uid) continue;
+      this.realtimeService.emitToRoom(uid, 'conversation_removed', payload);
+    }
+  }
+
+  async setPinnedForUser(
+    conversationId: string,
+    userId: string,
+    isPinned: boolean,
+  ): Promise<{ conversationId: string; userId: string; isPinned: boolean }> {
+    if (!Types.ObjectId.isValid(conversationId)) {
+      throw new NotFoundException('Conversation ID không hợp lệ');
+    }
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new NotFoundException('User ID không hợp lệ');
+    }
+
+    const cid = new Types.ObjectId(conversationId);
+    const uid = new Types.ObjectId(userId);
+
+    const result = await this.conversationModel.updateOne(
+      { _id: cid, 'members.userId': uid },
+      { $set: { 'members.$.isPinned': !!isPinned } },
+    );
+    if (!result.matchedCount) {
+      throw new NotFoundException('Không tìm thấy conversation/member');
+    }
+
+    // Pin là trạng thái theo user -> chỉ emit về room userId (không broadcast cả room conversation)
+    this.realtimeService.emitToRoom(userId, 'conversation_pin_updated', {
+      conversationId,
+      isPinned: !!isPinned,
+      updatedAt: new Date().toISOString(),
+    });
+
+    return { conversationId, userId, isPinned: !!isPinned };
   }
 
   async addPinnedMessageId(
@@ -452,7 +648,9 @@ export class ConversationsService {
     return { wasRemoved: result.modifiedCount > 0 };
   }
 
-  async findPinnedMessages(conversationId: string): Promise<Record<string, unknown>[]> {
+  async findPinnedMessages(
+    conversationId: string,
+  ): Promise<Record<string, unknown>[]> {
     if (!Types.ObjectId.isValid(conversationId)) {
       throw new NotFoundException('Conversation ID không hợp lệ');
     }
