@@ -14,6 +14,7 @@ import { UpdateMessageDto } from './dto/update-message.dto';
 import { MessageMetadataDto } from './dto/message-metadata.dto';
 import { toPlainDoc } from '../common/mongo-plain';
 import { ConversationsService } from '../conversations/conversations.service';
+import { RealtimeService } from '../realtime/realtime.service';
 
 @Injectable()
 export class MessagesService {
@@ -22,6 +23,7 @@ export class MessagesService {
   constructor(
     @InjectModel(Message.name) private messageModel: Model<MessageDocument>,
     private conversationsService: ConversationsService,
+    private readonly realtimeService: RealtimeService,
   ) {}
 
   // ================= CREATE =================
@@ -199,6 +201,12 @@ export class MessagesService {
       { conversationId: cid, deletedBy: { $ne: uid } },
       { $addToSet: { deletedBy: uid } },
     );
+
+    // Realtime cho cùng user trên nhiều thiết bị/tab
+    this.realtimeService.emitToRoom(userId, 'conversation_history_cleared', {
+      conversationId,
+      updatedAt: new Date().toISOString(),
+    });
 
     return {
       success: true,

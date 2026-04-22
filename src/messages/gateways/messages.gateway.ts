@@ -17,6 +17,7 @@ import { CreateMessageDto } from '../dto/create-message.dto';
 import { MessageStatus, MessageType, ReactionType } from '../schemas/message.schema';
 import { instrument } from '@socket.io/admin-ui';
 import { UsePipes, ValidationPipe, Logger } from '@nestjs/common';
+import { RealtimeService } from '../../realtime/realtime.service';
 
 @WebSocketGateway({
   cors: {
@@ -39,9 +40,11 @@ export class MessagesGateway
     private readonly usersService: UsersService, // 👈 Inject UsersService vào đây
     private readonly friendshipsService: FriendshipsService,
     private readonly conversationsService: ConversationsService,
+    private readonly realtimeService: RealtimeService,
   ) {}
 
   afterInit() {
+    this.realtimeService.setServer(this.server);
     instrument(this.server, {
       auth: false,
       mode: 'development',
