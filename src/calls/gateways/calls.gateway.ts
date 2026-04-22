@@ -55,6 +55,9 @@ export class CallsGateway implements OnGatewayConnection {
       `User ${data.callDto.callerId} starting call in room ${data.callDto.conversationId}`,
     );
 
+    // Ensure caller is in call room early to receive participant events.
+    client.join(data.callDto.conversationId);
+
     // Lưu bản ghi cuộc gọi vào DB (Trạng thái: CALLING)
     const callRecord = await this.callsService.create(data.callDto);
 
@@ -205,6 +208,29 @@ export class CallsGateway implements OnGatewayConnection {
     client.to(data.conversationId).emit('ice_candidate', payload);
   }
 
+  @SubscribeMessage('call_offer')
+  handleCallOffer(
+    @MessageBody()
+    data: {
+      conversationId: string;
+      callId?: string;
+      targetId: string;
+      sourceId?: string;
+      offer: any;
+    },
+    @ConnectedSocket() client: Socket,
+  ) {
+    if (!data.targetId) return;
+
+    this.server.to(data.targetId).emit('call_offer', {
+      conversationId: data.conversationId,
+      callId: data.callId,
+      sourceId: data.sourceId ?? (client.handshake.query.userId as string),
+      targetId: data.targetId,
+      offer: data.offer,
+    });
+  }
+
   /**
    * 4. Kết thúc cuộc gọi
    * Tính toán thời lượng (duration) và cập nhật DB
@@ -306,8 +332,10 @@ export class CallsGateway implements OnGatewayConnection {
     if (!isGroup) {
       this.server.to(data.conversationId).emit('conversation_call_updated', {
         conversationId: data.conversationId,
+        senderId: call?.callerId?.toString() ?? '',
         lastMessage: {
           content: lastContent,
+          senderId: call?.callerId?.toString() ?? '',
           createdAt: new Date().toISOString(),
         },
       });
@@ -327,6 +355,10 @@ export class CallsGateway implements OnGatewayConnection {
     // ✅ Lấy call hiện tại để check xem startedAt đã tồn tại chưa
     const existingCall = await this.callsService.findById(data.callId);
     const isFirstConnection = !existingCall?.startedAt;
+    const existingActiveIds = ((existingCall?.activeParticipants ?? []) as any[])
+      .map((id) => id?.toString?.() ?? '')
+      .filter((id) => id.length > 0);
+    const wasAlreadyActive = existingActiveIds.includes(data.userId);
 
     let startedAt = existingCall?.startedAt
       ? (existingCall.startedAt as Date).toISOString()
@@ -357,6 +389,26 @@ export class CallsGateway implements OnGatewayConnection {
     this.logger.log(
       `Added ${data.userId} to activeParticipants. Total: ${(updatedCall?.activeParticipants as any[])?.length ?? 0}`,
     );
+
+    const activeParticipantIds = ((updatedCall?.activeParticipants ?? []) as any[])
+      .map((id) => id?.toString?.() ?? '')
+      .filter((id) => id.length > 0);
+
+    // Sync full active participants list to the just-connected client.
+    client.emit('active_participants', {
+      callId: data.callId,
+      conversationId: data.conversationId,
+      activeParticipants: activeParticipantIds,
+    });
+
+    if (!wasAlreadyActive) {
+      this.server.to(data.conversationId).emit('participant_joined', {
+        callId: data.callId,
+        userId: data.userId,
+        activeParticipantsCount:
+          (updatedCall?.activeParticipants as any[])?.length ?? 0,
+      });
+    }
 
     // ✅ CHỈ emit call_started lần đầu tiên
     if (isFirstConnection) {
