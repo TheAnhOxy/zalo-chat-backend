@@ -6,6 +6,28 @@ import { CreateStoryDto } from './dto/create-story.dto';
 import { UpdateStoryDto } from './dto/update-story.dto';
 import { toPlainDoc } from '../common/mongo-plain';
 
+/** Chuyển lean document (plain JS object) sang Record chuẩn hóa: _id → string */
+function leanToPlain(doc: any): Record<string, unknown> {
+  const plain: any = { ...doc };
+  if (plain._id) plain._id = plain._id.toString();
+  if (plain.userId && typeof plain.userId === 'object') {
+    if (plain.userId._id) {
+      // populated
+      plain.userName = plain.userId.fullName;
+      plain.userAvatar = plain.userId.avatar;
+      plain.userId = plain.userId._id.toString();
+    } else {
+      plain.userId = plain.userId.toString();
+    }
+  }
+  if (Array.isArray(plain.viewers)) {
+    plain.viewers = plain.viewers.map((v: any) =>
+      typeof v === 'object' ? v.toString() : v,
+    );
+  }
+  return plain as Record<string, unknown>;
+}
+
 @Injectable()
 export class StoriesService {
   constructor(
@@ -23,16 +45,24 @@ export class StoriesService {
     });
 
     const saved = await doc.save();
-    return toPlainDoc(saved);
+    const populated = await saved.populate('userId', 'fullName avatar');
+    const plain = toPlainDoc(populated) as any;
+    if (populated.userId && typeof populated.userId === 'object') {
+      plain.userId = (populated.userId as any)._id.toString();
+      plain.userName = (populated.userId as any).fullName;
+      plain.userAvatar = (populated.userId as any).avatar;
+    }
+    return plain;
   }
 
   async findAll(): Promise<Record<string, unknown>[]> {
     const list = await this.storyModel
       .find()
+      .populate('userId', 'fullName avatar')
       .sort({ createdAt: -1 })
       .lean()
       .exec();
-    return list as Record<string, unknown>[];
+    return list.map(leanToPlain);
   }
 
   async findById(id: string): Promise<Record<string, unknown>> {
@@ -65,13 +95,29 @@ export class StoriesService {
 
     const list = await this.storyModel
       .find(filter)
+      .populate('userId', 'fullName avatar')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean()
       .exec();
 
-    return list as Record<string, unknown>[];
+    return list.map(leanToPlain);
+  }
+
+  async findExplore(userId: string, limit = 20): Promise<Record<string, unknown>[]> {
+    const list = await this.storyModel
+      .find({
+        userId: { $ne: new Types.ObjectId(userId) },
+        expiresAt: { $gt: new Date() },
+      })
+      .populate('userId', 'fullName avatar')
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean()
+      .exec();
+
+    return list.map(leanToPlain);
   }
 
   async update(id: string, dto: UpdateStoryDto): Promise<Record<string, unknown>> {
