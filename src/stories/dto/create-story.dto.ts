@@ -38,4 +38,9 @@ export class CreateStoryDto {
   @ArrayMinSize(0)
   @IsMongoId({ each: true })
   viewers?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  thumbnailUrl?: string;
 }

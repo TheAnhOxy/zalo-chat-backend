@@ -34,6 +34,9 @@ export class Story {
 
   @Prop({ type: Date, required: true })
   expiresAt: Date;
+
+  @Prop({ type: String })
+  thumbnailUrl?: string;
 }
 
 export const StorySchema = SchemaFactory.createForClass(Story);
