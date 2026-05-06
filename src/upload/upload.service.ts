@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import {
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -85,9 +86,44 @@ export class UploadService {
       return { url: fileUrl };
     }
 
+    const buildCandidates = (key: string): string[] => {
+      const out = new Set<string>();
+      const raw = key.trim();
+      if (raw) out.add(raw);
+      try {
+        const decoded = decodeURIComponent(raw);
+        if (decoded) out.add(decoded);
+      } catch {
+        // ignore decode errors
+      }
+
+      const removeDupSuffix = (k: string): string =>
+        k.replace(/\s*\(\d+\)(\.[a-z0-9]+)$/i, '$1');
+
+      for (const k of Array.from(out)) {
+        const noSuffix = removeDupSuffix(k);
+        if (noSuffix && noSuffix !== k) out.add(noSuffix);
+      }
+
+      return Array.from(out);
+    };
+
+    let resolvedKey = loc.key;
+    for (const candidate of buildCandidates(loc.key)) {
+      try {
+        await this.s3Client.send(
+          new HeadObjectCommand({ Bucket: loc.bucket, Key: candidate }),
+        );
+        resolvedKey = candidate;
+        break;
+      } catch {
+        // try next
+      }
+    }
+
     const command = new GetObjectCommand({
       Bucket: loc.bucket,
-      Key: loc.key,
+      Key: resolvedKey,
       ResponseContentDisposition: downloadName
         ? `attachment; filename="${downloadName}"`
         : undefined,

@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsArray } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsArray,
+  IsInt,
+  Min,
+  Max,
+} from 'class-validator';
 
 export class ChatHistoryItem {
   @ApiProperty({ enum: ['user', 'model'] })
@@ -69,6 +77,24 @@ export class ChatRequestDto {
   @IsArray()
   @IsOptional()
   history?: ChatHistoryItem[];
+
+  @ApiPropertyOptional({
+    description:
+      'ID cuộc trò chuyện chat thật (nhóm/1-1) cần tóm tắt hoặc hỏi đáp theo nội dung.',
+  })
+  @IsString()
+  @IsOptional()
+  targetConversationId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Số tin nhắn gần nhất sẽ đưa vào ngữ cảnh để AI tóm tắt/hỏi đáp. Mặc định 60, tối đa 200.',
+  })
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  @IsOptional()
+  targetConversationLimit?: number;
 }
 
 export class ChatResponseDto {
