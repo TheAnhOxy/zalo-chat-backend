@@ -24,4 +24,9 @@ export class LoginDto {
   @IsOptional()
   @IsString()
   deviceName?: string;
+
+  @ApiPropertyOptional({ example: 'fp_9f8c2b...' })
+  @IsOptional()
+  @IsString()
+  deviceFingerprint?: string;
 }

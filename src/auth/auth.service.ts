@@ -44,6 +44,7 @@ import { LogoutAllDto } from './dto/logout-all.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { GoogleLoginDto } from './dto/google-login.dto';
 import { LoginChallengeStatusDto } from './dto/login-challenge-status.dto';
+import { RealtimeService } from '../realtime/realtime.service';
 
 interface TokenPair {
   accessToken: string;
@@ -81,6 +82,7 @@ export class AuthService {
     private readonly loginChallengeModel: Model<LoginChallengeDocument>,
     private readonly configService: ConfigService,
     private readonly jwtService: JwtService,
+    private readonly realtimeService: RealtimeService,
   ) {
     this.accessExpiresIn =
       this.configService.get<string>('JWT_ACCESS_EXPIRES_IN') || '15m';
@@ -222,22 +224,23 @@ export class AuthService {
     }
 
     const device = dto.device || SessionDevice.WEB;
-    const deviceName = dto.deviceName || 'Unknown Device';
+    const rawDeviceName = dto.deviceName || 'Unknown Device';
+    const fingerprint = this.normalizeFingerprint(dto.deviceFingerprint);
+    const deviceName = this.buildDeviceNameWithFingerprint(rawDeviceName, fingerprint);
 
-    const activeSessions = await this.sessionModel
-      .find({
-        userId: user._id,
-        isActive: true,
-        expiredAt: { $gt: new Date() },
-      })
+    const sessions = await this.sessionModel
+      .find({ userId: user._id })
       .lean()
       .exec();
 
-    // Strict mode: if this account already has any active session,
-    // require email challenge for the next login attempt.
-    const hasOtherActiveSession = activeSessions.length > 0;
+    const isTrustedDevice = this.isTrustedDevice(
+      sessions,
+      fingerprint,
+      device,
+      rawDeviceName,
+    );
 
-    if (hasOtherActiveSession) {
+    if (sessions.length > 0 && !isTrustedDevice) {
       const now = new Date();
       const challengeId = `LC_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
       const expiresAt = new Date(
@@ -520,6 +523,14 @@ export class AuthService {
       { $set: { isActive: false } },
     );
 
+    try {
+      this.realtimeService.emitToRoom(userId, 'force_logout', {
+        reason: 'all_devices_logged_out',
+      });
+    } catch (e) {
+      // Ignore emit errors so request still completes
+    }
+
     return ok('Logout all devices success', { userId });
   }
 
@@ -575,6 +586,14 @@ export class AuthService {
       { userId: user._id, isActive: true },
       { $set: { isActive: false } },
     );
+
+    try {
+      this.realtimeService.emitToRoom(user._id.toString(), 'force_logout', {
+        reason: 'password_changed',
+      });
+    } catch (e) {
+      // Ignore emit errors
+    }
 
     return ok('Change password success', {
       updatedAt: updatedAt.toISOString(),
@@ -784,11 +803,6 @@ export class AuthService {
       throwAppError(HttpStatus.NOT_FOUND, 'USER_NOT_FOUND', 'Khong tim thay user');
     }
 
-    await this.sessionModel.updateMany(
-      { userId: user._id, isActive: true },
-      { $set: { isActive: false } },
-    );
-
     user.status = { isOnline: true, lastSeen: new Date() } as User['status'];
     await user.save();
 
@@ -803,12 +817,11 @@ export class AuthService {
     challenge.consumedAt = new Date();
     await challenge.save();
 
-    return ok('Login confirmed. Old sessions revoked', {
+    return ok('Login confirmed. Session created', {
       challengeId: challenge.challengeId,
       status: challenge.status,
       user: this.toAuthUser(user),
       tokens,
-      revokedOldSessions: true,
     });
   }
 
@@ -1075,6 +1088,51 @@ export class AuthService {
     return SessionDevice.WEB;
   }
 
+  private normalizeFingerprint(value?: string): string | null {
+    if (!value) return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private buildDeviceNameWithFingerprint(
+    deviceName: string,
+    fingerprint: string | null,
+  ): string {
+    if (!fingerprint) return deviceName;
+    if (deviceName.includes('fp=')) return deviceName;
+    return `${deviceName} | fp=${fingerprint}`;
+  }
+
+  private extractFingerprintFromDeviceName(deviceName: string): string | null {
+    const match = deviceName.match(/\bfp=([a-zA-Z0-9_-]+)\b/);
+    return match ? match[1] : null;
+  }
+
+  private stripFingerprintFromDeviceName(deviceName: string): string {
+    return deviceName.replace(/\s*\|\s*fp=[a-zA-Z0-9_-]+\s*$/g, '').trim();
+  }
+
+  private isTrustedDevice(
+    sessions: Array<{ device?: SessionDevice; deviceName?: string }>,
+    fingerprint: string | null,
+    device: SessionDevice,
+    rawDeviceName: string,
+  ): boolean {
+    if (sessions.length === 0) return false;
+
+    if (fingerprint) {
+      return sessions.some((s) => {
+        const name = s.deviceName || '';
+        return this.extractFingerprintFromDeviceName(name) === fingerprint;
+      });
+    }
+
+    return sessions.some((s) => {
+      const name = this.stripFingerprintFromDeviceName(s.deviceName || '');
+      return s.device === device && name === rawDeviceName;
+    });
+  }
+
   private signLoginChallengeToken(
     challengeId: string,
     action: 'approve' | 'reject',
@@ -1181,7 +1239,7 @@ export class AuthService {
       rejectUrl,
     ].join('\n');
 
-    const safeDeviceName = this.escapeHtml(deviceName);
+    const safeDeviceName = this.escapeHtml(this.stripFingerprintFromDeviceName(deviceName));
     const safeIp = this.escapeHtml(ip);
     const safeChallengeId = this.escapeHtml(challengeId);
 
