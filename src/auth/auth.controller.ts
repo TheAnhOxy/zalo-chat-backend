@@ -54,7 +54,7 @@ export class AuthController {
     return this.authService.login(dto, this.extractIp(req)).then((x) => x.body);
   }
 
-  @Post('login/challenge-status')
+  @Post('login-challenge/status')
   @HttpCode(200)
   @ApiOperation({ summary: 'Check login challenge status and issue token if approved' })
   loginChallengeStatus(@Body() dto: LoginChallengeStatusDto): Promise<Record<string, unknown>> {
