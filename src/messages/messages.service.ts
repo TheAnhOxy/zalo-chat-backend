@@ -15,6 +15,8 @@ import { MessageMetadataDto } from './dto/message-metadata.dto';
 import { toPlainDoc } from '../common/mongo-plain';
 import { ConversationsService } from '../conversations/conversations.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/schemas/notification.schema';
 
 @Injectable()
 export class MessagesService {
@@ -24,6 +26,7 @@ export class MessagesService {
     @InjectModel(Message.name) private messageModel: Model<MessageDocument>,
     private conversationsService: ConversationsService,
     private readonly realtimeService: RealtimeService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ================= CREATE =================
@@ -226,6 +229,22 @@ export class MessagesService {
       { new: true },
     );
     if (!doc) throw new NotFoundException('Không tìm thấy tin nhắn');
+
+    // Tạo thông báo nếu có reaction và người thả reaction không phải là người gửi tin nhắn
+    if (doc.senderId.toString() !== userId) {
+      await this.notificationsService.create({
+        receiverId: doc.senderId.toString(),
+        type: NotificationType.MESSAGE_REACTION as any,
+        content: 'đã bày tỏ cảm xúc về tin nhắn của bạn',
+        data: {
+          senderId: userId,
+          conversationId: doc.conversationId.toString(),
+          messageId: doc._id.toString(),
+        },
+        isRead: false,
+      });
+    }
+
     return toPlainDoc(doc);
   }
 

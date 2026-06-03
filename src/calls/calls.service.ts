@@ -5,11 +5,14 @@ import { Call, CallDocument, CallStatus } from './schemas/call.schema';
 import { CreateCallDto } from './dto/create-call.dto';
 import { UpdateCallDto } from './dto/update-call.dto';
 import { toPlainDoc } from '../common/mongo-plain';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/schemas/notification.schema';
 
 @Injectable()
 export class CallsService {
   constructor(
     @InjectModel(Call.name) private callModel: Model<CallDocument>,
+    private notificationsService: NotificationsService,
   ) {}
 
   async create(dto: CreateCallDto): Promise<Record<string, unknown>> {
@@ -115,6 +118,29 @@ export class CallsService {
 
     if (!doc) {
       throw new NotFoundException('Không tìm thấy call');
+    }
+
+    // Cuộc gọi nhỡ: khi bị từ chối (REJECTED) HOẶC kết thúc trước khi có ai nhấc máy (ENDED + duration=0)
+    const isMissedCall =
+      dto.status === CallStatus.REJECTED ||
+      (dto.status === CallStatus.ENDED && doc.duration === 0);
+
+    if (isMissedCall) {
+      // Tạo thông báo cuộc gọi nhỡ cho phía người nghe (các participants trừ caller)
+      for (const participantId of doc.participants) {
+        if (participantId.toString() !== doc.callerId.toString()) {
+          await this.notificationsService.create({
+            receiverId: participantId.toString(),
+            type: NotificationType.CALL,
+            content: 'Bạn có một cuộc gọi nhỡ',
+            data: {
+              senderId: doc.callerId.toString(),
+              conversationId: doc.conversationId.toString(),
+            },
+            isRead: false,
+          });
+        }
+      }
     }
 
     return toPlainDoc(doc);

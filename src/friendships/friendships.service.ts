@@ -10,12 +10,15 @@ import { Friendship, FriendshipDocument, FriendshipStatus } from './schemas/frie
 import { CreateFriendshipDto } from './dto/create-friendship.dto';
 import { UpdateFriendshipDto } from './dto/update-friendship.dto';
 import { toPlainDoc } from '../common/mongo-plain';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/schemas/notification.schema';
 
 @Injectable()
 export class FriendshipsService {
   constructor(
     @InjectModel(Friendship.name)
     private friendshipModel: Model<FriendshipDocument>,
+    private notificationsService: NotificationsService,
   ) {}
 
   async create(dto: CreateFriendshipDto): Promise<Record<string, unknown>> {
@@ -30,6 +33,16 @@ export class FriendshipsService {
         status: FriendshipStatus.PENDING,
       });
       const saved = await doc.save();
+      
+      // Tạo thông báo kết bạn
+      await this.notificationsService.create({
+        receiverId: dto.addresseeId,
+        type: NotificationType.FRIEND_REQUEST,
+        content: 'đã gửi cho bạn một lời mời kết bạn',
+        data: { senderId: dto.requesterId },
+        isRead: false,
+      });
+      
       return toPlainDoc(saved);
     } catch (err: unknown) {
       if (this.isDuplicateKeyError(err)) {
@@ -107,7 +120,7 @@ export class FriendshipsService {
     id: string,
     dto: UpdateFriendshipDto,
   ): Promise<Record<string, unknown>> {
-    await this.findById(id);
+    const oldRow = await this.findById(id);
     const row = await this.friendshipModel
       .findByIdAndUpdate(id, { $set: { status: dto.status } }, { new: true })
       .lean()
@@ -115,6 +128,21 @@ export class FriendshipsService {
     if (!row) {
       throw new NotFoundException('Không tìm thấy friendship');
     }
+    
+    if (dto.status === FriendshipStatus.ACCEPTED && oldRow.status !== FriendshipStatus.ACCEPTED) {
+      const requesterIdStr = String(oldRow.requesterId);
+      const addresseeIdStr = String(oldRow.addresseeId);
+      
+      // Tạo thông báo cho người đã gửi lời mời (requester)
+      await this.notificationsService.create({
+        receiverId: requesterIdStr,
+        type: NotificationType.FRIEND_ACCEPTED as any, // ép kiểu nếu mongoose ts chưa catch kịp
+        content: 'đã chấp nhận lời mời kết bạn của bạn',
+        data: { senderId: addresseeIdStr },
+        isRead: false,
+      });
+    }
+    
     return row as Record<string, unknown>;
   }
 

@@ -7,6 +7,7 @@ import { MessagesGateway } from './gateways/messages.gateway';
 import { UsersModule } from 'src/users/users.module'; 
 import { ConversationsModule } from '../conversations/conversations.module'; 
 import { FriendshipsModule } from '../friendships/friendships.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { FriendshipsModule } from '../friendships/friendships.module';
     UsersModule,           // Giữ lại để MessagesGateway xử lý được join_user_room và online status
     ConversationsModule,   // Giữ lại để xử lý các logic liên quan đến hội thoại
     FriendshipsModule,
+    NotificationsModule,
   ],
   controllers: [MessagesController],
   providers: [MessagesService, MessagesGateway],

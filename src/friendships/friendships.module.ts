@@ -3,12 +3,14 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { Friendship, FriendshipSchema } from './schemas/friendship.schema';
 import { FriendshipsService } from './friendships.service';
 import { FriendshipsController } from './friendships.controller';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: Friendship.name, schema: FriendshipSchema },
     ]),
+    NotificationsModule,
   ],
   controllers: [FriendshipsController],
   providers: [FriendshipsService],
