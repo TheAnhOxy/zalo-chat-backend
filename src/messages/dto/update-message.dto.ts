@@ -24,8 +24,7 @@ export class UpdateMessageDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsString()
-  content?: string;
+  content?: any;
 
   @ApiPropertyOptional()
   @IsOptional()

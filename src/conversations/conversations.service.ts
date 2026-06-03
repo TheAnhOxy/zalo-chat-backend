@@ -298,6 +298,8 @@ export class ConversationsService {
                 _id: 0,
                 messageId: '$_id',
                 content: 1,
+                messageType: 1,
+                type: 1,
                 senderId: 1,
                 createdAt: 1,
               },
@@ -323,6 +325,22 @@ export class ConversationsService {
       },
       {
         $lookup: {
+          from: 'calls',
+          let: { cid: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$conversationId', '$$cid'] },
+              },
+            },
+            { $sort: { createdAt: -1 } },
+            { $limit: 1 },
+          ],
+          as: 'lastCall',
+        },
+      },
+      {
+        $lookup: {
           from: 'messages',
           localField: '_id',
           foreignField: 'conversationId',
@@ -334,6 +352,9 @@ export class ConversationsService {
           // override lastMessage cho đúng theo user hiện tại
           lastMessage: {
             $ifNull: [{ $arrayElemAt: ['$lastVisibleMessage', 0] }, null],
+          },
+          lastCall: {
+            $ifNull: [{ $arrayElemAt: ['$lastCall', 0] }, null],
           },
           unreadCount: {
             $size: {

@@ -30,8 +30,7 @@ export class CreateMessageDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsString()
-  content?: string;
+  content?: any;
 
   @ApiPropertyOptional()
   @IsOptional()

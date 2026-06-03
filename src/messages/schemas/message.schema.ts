@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import mongoose, { HydratedDocument, Types } from 'mongoose';
 
 export type MessageDocument = HydratedDocument<Message>;
 
@@ -12,6 +12,7 @@ export enum MessageType {
   LOCATION = 'LOCATION',
   CONTACT = 'CONTACT',
   SYSTEM = 'SYSTEM',
+  MEDIA_CLUSTER = 'MEDIA_CLUSTER',
 }
 
 export enum MessageStatus {
@@ -98,8 +99,8 @@ export class Message {
   })
   messageType: MessageType;
 
-  @Prop({ type: String, default: '' })
-  content: string;
+  @Prop({ type: mongoose.Schema.Types.Mixed, default: '' })
+  content: any;
 
   @Prop({
     type: MessageMetadataMongoSchema,

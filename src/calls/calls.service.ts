@@ -7,11 +7,13 @@ import { UpdateCallDto } from './dto/update-call.dto';
 import { toPlainDoc } from '../common/mongo-plain';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/schemas/notification.schema';
+import { Conversation, ConversationDocument } from '../conversations/schemas/conversation.schema';
 
 @Injectable()
 export class CallsService {
   constructor(
     @InjectModel(Call.name) private callModel: Model<CallDocument>,
+    @InjectModel(Conversation.name) private conversationModel: Model<ConversationDocument>,
     private notificationsService: NotificationsService,
   ) {}
 
@@ -28,6 +30,10 @@ export class CallsService {
     });
 
     const saved = await doc.save();
+    await this.conversationModel.findByIdAndUpdate(dto.conversationId, {
+      $set: { updatedAt: new Date() },
+    }).exec();
+    
     return toPlainDoc(saved);
   }
 
@@ -142,6 +148,10 @@ export class CallsService {
         }
       }
     }
+    
+    await this.conversationModel.findByIdAndUpdate(doc.conversationId, {
+      $set: { updatedAt: new Date() },
+    }).exec();
 
     return toPlainDoc(doc);
   }
@@ -151,5 +161,9 @@ export class CallsService {
     if (!res) {
       throw new NotFoundException('Không tìm thấy call');
     }
+    
+    await this.conversationModel.findByIdAndUpdate(res.conversationId, {
+      $set: { updatedAt: new Date() },
+    }).exec();
   }
 }
