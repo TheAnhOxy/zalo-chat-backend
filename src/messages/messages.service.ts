@@ -248,6 +248,19 @@ export class MessagesService {
     return toPlainDoc(doc);
   }
 
+  async removeReaction(messageId: string, userId: string): Promise<Record<string, unknown>> {
+    const uid = new Types.ObjectId(userId);
+    const mid = new Types.ObjectId(messageId);
+
+    const doc = await this.messageModel.findByIdAndUpdate(
+      mid,
+      { $pull: { reactions: { userId: uid } } },
+      { new: true },
+    );
+    if (!doc) throw new NotFoundException('Không tìm thấy tin nhắn');
+    return toPlainDoc(doc);
+  }
+
   async addSeenBy(messageId: string, userId: string, seenAt?: Date): Promise<Record<string, unknown>> {
     const uid = new Types.ObjectId(userId);
     const mid = new Types.ObjectId(messageId);
