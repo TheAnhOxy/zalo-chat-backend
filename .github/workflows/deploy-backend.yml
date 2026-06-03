@@ -1,0 +1,45 @@
+name: Deploy Backend (EC2)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig*.json"
+      - "nest-cli.json"
+      - "scripts/deploy-remote.sh"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend-ec2
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy NestJS to EC2
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          command_timeout: 15m
+          script_stop: true
+          envs: EC2_REPO_DIR,DEPLOY_BRANCH
+          script: |
+            set -euo pipefail
+            REPO_DIR="${EC2_REPO_DIR:-$HOME/zalo-chat-backend}"
+            BRANCH="${DEPLOY_BRANCH:-main}"
+            cd "$REPO_DIR"
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+            git pull origin "$BRANCH"
+            bash scripts/deploy-remote.sh
+        env:
+          EC2_REPO_DIR: ${{ secrets.EC2_REPO_DIR }}
+          DEPLOY_BRANCH: ${{ github.ref_name }}
