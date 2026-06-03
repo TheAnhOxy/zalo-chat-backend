@@ -6,6 +6,8 @@ import { CreateStoryDto } from './dto/create-story.dto';
 import { UpdateStoryDto } from './dto/update-story.dto';
 import { toPlainDoc } from '../common/mongo-plain';
 import { FriendshipsService } from '../friendships/friendships.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/schemas/notification.schema';
 
 /** Chuyển lean document (plain JS object) sang Record chuẩn hóa: _id → string */
 function leanToPlain(doc: any): Record<string, unknown> {
@@ -35,6 +37,7 @@ export class StoriesService {
   constructor(
     @InjectModel(Story.name) private storyModel: Model<StoryDocument>,
     private readonly friendshipsService: FriendshipsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(dto: CreateStoryDto): Promise<Record<string, unknown>> {
@@ -56,12 +59,37 @@ export class StoriesService {
       plain.userName = (populated.userId as any).fullName;
       plain.userAvatar = (populated.userId as any).avatar;
     }
+    
+    // Gửi thông báo đến bạn bè
+    try {
+      const friendIds = await this.friendshipsService.findAcceptedFriendIdsByUserId(dto.userId);
+      for (const friendId of friendIds) {
+        await this.notificationsService.create({
+          receiverId: friendId,
+          type: NotificationType.STORY,
+          content: 'vừa đăng một tin mới',
+          data: { senderId: dto.userId },
+          isRead: false,
+        });
+      }
+    } catch (e) {
+      // Ignore error
+    }
+
     return plain;
   }
 
-  async findAll(): Promise<Record<string, unknown>[]> {
+  async findAll(currentUserId?: string): Promise<Record<string, unknown>[]> {
+    if (!currentUserId || !Types.ObjectId.isValid(currentUserId)) {
+      return [];
+    }
+
+    const friendIds = await this.friendshipsService.findAcceptedFriendIdsByUserId(currentUserId);
+    const validUserIds = [currentUserId, ...friendIds].map((id) => new Types.ObjectId(id));
+
     const list = await this.storyModel
       .find({
+        userId: { $in: validUserIds },
         expiresAt: { $gt: new Date() },
       })
       .populate('userId', 'fullName avatar')

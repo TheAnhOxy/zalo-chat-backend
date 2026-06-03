@@ -83,6 +83,11 @@ export class OptionalAccessSessionGuard implements CanActivate {
       throw new UnauthorizedException('Session has been revoked');
     }
 
+    (req as any).user = {
+      userId: payload.sub,
+      sessionId: payload.sid,
+    };
+
     return true;
   }
 }

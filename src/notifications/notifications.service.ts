@@ -28,7 +28,7 @@ export class NotificationsService {
     });
 
     const saved = await doc.save();
-    return toPlainDoc(saved);
+    return this.serializeDoc(toPlainDoc(saved));
   }
 
   async findAll(): Promise<Record<string, unknown>[]> {
@@ -37,7 +37,7 @@ export class NotificationsService {
       .sort({ createdAt: -1 })
       .lean()
       .exec();
-    return list as Record<string, unknown>[];
+    return (list as Record<string, unknown>[]).map((d) => this.serializeDoc(d));
   }
 
   async findById(id: string): Promise<Record<string, unknown>> {
@@ -76,7 +76,7 @@ export class NotificationsService {
       .lean()
       .exec();
 
-    return list as Record<string, unknown>[];
+    return (list as Record<string, unknown>[]).map((d) => this.serializeDoc(d));
   }
 
   async update(
@@ -119,6 +119,20 @@ export class NotificationsService {
     if (!res) {
       throw new NotFoundException('Không tìm thấy notification');
     }
+  }
+
+  /** Chuyển các ObjectId trong data thành string để Flutter parse được */
+  private serializeDoc(doc: Record<string, unknown>): Record<string, unknown> {
+    const data = doc['data'] as Record<string, unknown> | null | undefined;
+    if (data) {
+      doc['data'] = {
+        senderId: data['senderId']?.toString() ?? null,
+        conversationId: data['conversationId']?.toString() ?? null,
+        messageId: data['messageId']?.toString() ?? null,
+      };
+    }
+    if (doc['receiverId']) doc['receiverId'] = doc['receiverId']!.toString();
+    return doc;
   }
 
   private mapData(dto?: NotificationDataDto): NotificationData {

@@ -6,7 +6,10 @@ export type NotificationDocument = HydratedDocument<Notification>;
 export enum NotificationType {
   MESSAGE = 'MESSAGE',
   FRIEND_REQUEST = 'FRIEND_REQUEST',
+  FRIEND_ACCEPTED = 'FRIEND_ACCEPTED',
   CALL = 'CALL',
+  STORY = 'STORY',
+  MESSAGE_REACTION = 'MESSAGE_REACTION',
 }
 
 @Schema({ _id: false })

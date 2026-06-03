@@ -6,11 +6,13 @@ import { StoriesController } from './stories.controller';
 
 import { FriendshipsModule } from '../friendships/friendships.module';
 import { StoriesGateway } from './gateways/stories.gateway';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: Story.name, schema: StorySchema }]),
     FriendshipsModule,
+    NotificationsModule,
   ],
   controllers: [StoriesController],
   providers: [StoriesService, StoriesGateway],

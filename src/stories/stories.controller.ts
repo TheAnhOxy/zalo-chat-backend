@@ -9,6 +9,7 @@ import {
   Query,
   ParseIntPipe,
   DefaultValuePipe,
+  Req,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { StoriesService } from './stories.service';
@@ -47,8 +48,9 @@ export class StoriesController {
 
   @Get()
   @ApiOperation({ summary: 'Danh sách stories (cũ)' })
-  findAll() {
-    return this.storiesService.findAll();
+  findAll(@Req() req: any) {
+    const userId = req.user?.userId;
+    return this.storiesService.findAll(userId);
   }
 
   @Get('feed/:userId')
