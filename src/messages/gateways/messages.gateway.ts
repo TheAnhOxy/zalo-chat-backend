@@ -272,6 +272,17 @@ export class MessagesGateway
     this.server.to(data.conversationId).emit('message_updated', updatedMsg);
   }
 
+  @SubscribeMessage('remove_reaction')
+  async handleRemoveReaction(
+    @MessageBody() data: { messageId: string; userId: string; conversationId: string },
+  ) {
+    const updatedMsg = await this.messagesService.removeReaction(
+      data.messageId,
+      data.userId,
+    );
+    this.server.to(data.conversationId).emit('message_updated', updatedMsg);
+  }
+
   @SubscribeMessage('seen_conversation')
   async handleSeenConversation(
     @MessageBody() data: { conversationId: string; userId: string },
