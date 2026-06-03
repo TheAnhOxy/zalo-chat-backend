@@ -331,7 +331,7 @@ export class MessagesGateway
 
   @SubscribeMessage('edit_message')
   async handleEditMessage(
-    @MessageBody() data: { messageId: string; content: string; conversationId: string },
+    @MessageBody() data: { messageId: string; content: any; conversationId: string },
   ) {
     const updatedMsg = await this.messagesService.update(data.messageId, {
       content: data.content,

@@ -65,9 +65,16 @@ export class MessagesService {
 
       // ==================== CẬP NHẬT lastMessage ====================
       try {
+        let lastMsgContent = '';
+        if (typeof plainMsg.content === 'string') {
+          lastMsgContent = plainMsg.content;
+        } else if (Array.isArray(plainMsg.content)) {
+          lastMsgContent = '[Đa phương tiện]';
+        }
+
         await this.conversationsService.updateLastMessage(dto.conversationId, {
           messageId: plainMsg._id?.toString() || saved._id.toString(),
-          content: (plainMsg.content as string) ?? '',
+          content: lastMsgContent,
           senderId: dto.senderId,
           createdAt: new Date().toISOString(),
         });
