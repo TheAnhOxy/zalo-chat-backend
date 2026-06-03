@@ -73,6 +73,7 @@ export class NotificationsService {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
+      .populate('data.senderId', 'fullName avatar')
       .lean()
       .exec();
 
@@ -124,12 +125,39 @@ export class NotificationsService {
   /** Chuyển các ObjectId trong data thành string để Flutter parse được */
   private serializeDoc(doc: Record<string, unknown>): Record<string, unknown> {
     const data = doc['data'] as Record<string, unknown> | null | undefined;
+    
+    // Web and Mobile fallback expectations
+    let senderId: string | null = null;
+    let senderName: string | null = null;
+    let senderAvatar: string | null = null;
+
+    if (data && data['senderId']) {
+      const sender = data['senderId'] as Record<string, unknown>;
+      if (sender._id) {
+        // Populated object
+        senderId = sender._id.toString();
+        senderName = (sender.fullName as string) || null;
+        senderAvatar = (sender.avatar as string) || null;
+        data['sender'] = sender; // for mobile backward compatibility
+      } else {
+        // Just ObjectId
+        senderId = sender.toString();
+      }
+    }
+
     if (data) {
       doc['data'] = {
-        senderId: data['senderId']?.toString() ?? null,
+        ...data,
+        senderId,
         conversationId: data['conversationId']?.toString() ?? null,
         messageId: data['messageId']?.toString() ?? null,
       };
+      
+      // Inject to root for Web backward compatibility
+      doc['senderId'] = senderId;
+      doc['senderName'] = senderName;
+      doc['senderAvatar'] = senderAvatar;
+      doc['conversationId'] = (doc['data'] as Record<string, unknown>).conversationId;
     }
     if (doc['receiverId']) doc['receiverId'] = doc['receiverId']!.toString();
     return doc;

@@ -14,6 +14,11 @@ export class UploadController {
     'image/jpeg',
     'image/gif',
     'image/webp',
+    // video
+    'video/mp4',
+    'video/quicktime',
+    'video/webm',
+    'video/avi',
     // documents / text
     'application/pdf',
     'text/plain',

@@ -20,6 +20,11 @@ export class UploadService {
     'image/jpeg',
     'image/gif',
     'image/webp',
+    // video
+    'video/mp4',
+    'video/quicktime',
+    'video/webm',
+    'video/avi',
     // documents / text
     'application/pdf',
     'text/plain',
@@ -51,12 +56,12 @@ export class UploadService {
       ChecksumAlgorithm: undefined,
     });
 
-    const url = await getSignedUrl(this.s3Client, command, { expiresIn: 3600 });
+    const uploadUrl = await getSignedUrl(this.s3Client, command, { expiresIn: 3600 });
 
     // Lưu ý: Sửa lại File URL để khớp với Region của bạn
     const fileUrl = `https://${process.env.S3_BUCKET_NAME}.s3.${process.env.S3_REGION}.amazonaws.com/${key}`;
 
-    return { url, fileUrl };
+    return { uploadUrl, fileUrl };
   }
 
   tryParseS3Url(url: string): { bucket: string; key: string } | null {
@@ -151,7 +156,7 @@ export class UploadService {
       return 'audio/m4a';
     }
     if (lowerFileName.endsWith('.mp4')) {
-      return 'audio/mp4';
+      return 'video/mp4';
     }
     if (lowerFileName.endsWith('.pdf')) {
       return 'application/pdf';
