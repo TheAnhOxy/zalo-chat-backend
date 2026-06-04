@@ -32,6 +32,22 @@ export class CallsController {
     return this.callsService.findAll();
   }
 
+  /**
+   * Cấp ICE config với TURN credentials có TTL (Time-Limited Credentials).
+   *
+   * Theo chuẩn TURN REST API (RFC 8489 Section 9.2):
+   *   username = "<unix-timestamp-expiry>:<userId>"
+   *   credential = HMAC-SHA1(TURN_SECRET, username)
+   *
+   * Client chỉ nhận credential tạm thời, hết hạn sau TURN_TTL_SECONDS.
+   * TURN secret thật không bao giờ rời khỏi server.
+   */
+  @Get('ice-config')
+  @ApiOperation({ summary: 'Lấy ICE servers config với TURN credentials TTL-based (1h)' })
+  getIceConfig(@Query('userId') userId?: string) {
+    return this.callsService.generateIceConfig(userId ?? 'anonymous');
+  }
+
   @Get('conversation/:conversationId')
   @ApiOperation({ summary: 'Calls theo hội thoại' })
   @ApiQuery({ name: 'limit', required: false })
