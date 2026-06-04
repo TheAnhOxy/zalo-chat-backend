@@ -218,7 +218,7 @@ export class MessagesGateway
     await this.messagesService.update(data.messageId, { isRecalled: true });
     this.server
       .to(data.conversationId)
-      .emit('message_recalled', { messageId: data.messageId });
+      .emit('message_recalled', { messageId: data.messageId, conversationId: data.conversationId });
   }
 
   @SubscribeMessage('typing')

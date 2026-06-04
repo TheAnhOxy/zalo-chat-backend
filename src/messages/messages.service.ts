@@ -109,11 +109,11 @@ export class MessagesService {
   async findByConversation(
     conversationId: string,
     userId: string,
-    options?: { limit?: number; skip?: number; pinnedOnly?: boolean },
-  ): Promise<Record<string, unknown>[]> {
-    if (!Types.ObjectId.isValid(conversationId)) return [];
+    options?: { limit?: number; skip?: number; pinnedOnly?: boolean; beforeMessageId?: string },
+  ): Promise<{ messages: Record<string, unknown>[]; hasMore: boolean }> {
+    if (!Types.ObjectId.isValid(conversationId)) return { messages: [], hasMore: false };
 
-    const limit = Math.min(Math.max(options?.limit ?? 50, 1), 200);
+    const limit = Math.min(Math.max(options?.limit ?? 30, 1), 200);
     const skip = Math.max(options?.skip ?? 0, 0);
 
     const filter: any = {
@@ -124,20 +124,35 @@ export class MessagesService {
       filter.isPinned = true;
     }
 
+    if (options?.beforeMessageId && Types.ObjectId.isValid(options.beforeMessageId)) {
+      filter._id = { $lt: new Types.ObjectId(options.beforeMessageId) };
+    }
+
     // Lọc bỏ tin nhắn mà userId này đã nhấn "Xóa phía tôi"
     if (userId && Types.ObjectId.isValid(userId)) {
       filter.deletedBy = { $ne: new Types.ObjectId(userId) };
     }
 
+    // Lấy nhiều hơn 1 record để check hasMore
+    const queryLimit = limit + 1;
+
     const list = await this.messageModel
       .find(filter)
       .sort(options?.pinnedOnly ? { pinnedAt: -1, createdAt: -1 } : { createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
+      .skip(options?.beforeMessageId ? 0 : skip)
+      .limit(queryLimit)
       .lean()
       .exec();
 
-    return list as Record<string, unknown>[];
+    const hasMore = list.length > limit;
+    if (hasMore) {
+      list.pop(); // Remove the extra record
+    }
+
+    return {
+      messages: list as Record<string, unknown>[],
+      hasMore,
+    };
   }
 
   // ================= UPDATE =================
