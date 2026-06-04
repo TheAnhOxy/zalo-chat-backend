@@ -273,11 +273,13 @@ export class CallsGateway implements OnGatewayConnection {
       this.logger.error(err);
     }
 
-    // ✅ Emit call_ended cho cả 2 bên (broadcast toàn room + người gọi)
-    // Emit cho người kia
-    client.to(data.conversationId).emit('call_ended', {
+    // ✅ Broadcast call_ended đến TOÀN BỘ room (bao gồm cả người gửi).
+    // Lý do dùng this.server.to() thay vì client.to():
+    //   - client.to() loại trừ người gửi → tab/thiết bị khác của họ không nhận được
+    //   - Frontend tự xử lý trạng thái local trước khi gửi end_call nên không bị duplicate
+    this.server.to(data.conversationId).emit('call_ended', {
       callId: data.callId,
-      callData: updatedCall, // ← gửi kèm data để Flutter thêm vào chatItems
+      callData: updatedCall,
     });
 
     // ✅ Emit conversation_updated để cập nhật lastMessage realtime
@@ -438,28 +440,31 @@ export class CallsGateway implements OnGatewayConnection {
       `User ${data.userId} leaving call ${data.callId} in room ${data.conversationId}`,
     );
 
-    const call = await this.callsService.findById(data.callId);
-    if (!call) {
-      this.logger.warn(`Call ${data.callId} not found`);
+    // BUG FIX: Dùng $pull atomic để remove participant.
+    // Code cũ: read activeParticipants → filter → update (3 operations).
+    // Race condition: nếu 2 người leave cùng lúc, cả 2 đọc count cũ → cả 2 nghĩ vẫn đủ người → call không được kết thúc.
+    const updatedCall = await (this.callsService as any).callModel.findByIdAndUpdate(
+      data.callId,
+      { $pull: { activeParticipants: new Types.ObjectId(data.userId) } },
+      { new: true },
+    );
+
+    if (!updatedCall) {
+      this.logger.warn(`Call ${data.callId} not found when ${data.userId} tried to leave`);
       return;
     }
 
-    // Cập nhật activeParticipants (loại bỏ user này)
-    const activeParticipants = ((call.activeParticipants || call.participants) as any[])
-      .map((id) => id?.toString?.() ?? '')
-      .filter((id) => id !== data.userId);
-
-    await this.callsService.update(data.callId, {
-      activeParticipants: activeParticipants,
-    });
+    const activeParticipants = ((updatedCall.activeParticipants ?? []) as any[])
+      .map((id: any) => id?.toString?.() ?? '')
+      .filter((id: string) => id.length > 0);
 
     this.logger.log(
-      `Updated activeParticipants: ${activeParticipants.length} remaining`,
+      `After ${data.userId} left: ${activeParticipants.length} active participants remain`,
     );
 
     // Nếu còn ít nhất 2 người → call tiếp tục
     if (activeParticipants.length >= 2) {
-      // 🔴 Notify room: Có 1 người rời (nhưng call vẫn tiếp tục)
+      // Notify room: Có 1 người rời (nhưng call vẫn tiếp tục)
       this.server.to(data.conversationId).emit('participant_left', {
         callId: data.callId,
         userId: data.userId,
@@ -469,8 +474,9 @@ export class CallsGateway implements OnGatewayConnection {
     }
 
     // Nếu chỉ còn dưới 2 người → kết thúc call
-    this.logger.log(`Only ${activeParticipants.length} active, ending call`);
+    this.logger.log(`Only ${activeParticipants.length} active, ending call ${data.callId}`);
 
+    const call = await this.callsService.findById(data.callId);
     let finalDuration = 0;
     if (call && call.startedAt) {
       const startTime = new Date(call.startedAt as string).getTime();
@@ -478,7 +484,7 @@ export class CallsGateway implements OnGatewayConnection {
       finalDuration = Math.round((endTime - startTime) / 1000);
     }
 
-    const updatedCall = await this.callsService.update(data.callId, {
+    const finalCall = await this.callsService.update(data.callId, {
       status: CallStatus.ENDED,
       duration: finalDuration,
       endedAt: new Date().toISOString(),
@@ -501,11 +507,11 @@ export class CallsGateway implements OnGatewayConnection {
       this.logger.error(err);
     }
 
-    // 🔴 Notify: Call kết thúc (tất cả mọi người)
+    // Notify: Call kết thúc (tất cả mọi người trong room)
     this.server.to(data.conversationId).emit('call_ended', {
       callId: data.callId,
       reason: 'Không đủ người tham gia',
-      callData: updatedCall,
+      callData: finalCall,
     });
 
     this.server.to(data.conversationId).emit('conversation_call_updated', {
@@ -515,7 +521,7 @@ export class CallsGateway implements OnGatewayConnection {
         senderId: call?.callerId?.toString() ?? '',
         createdAt: new Date().toISOString(),
       },
-      callData: updatedCall,
+      callData: finalCall,
     });
   }
 }
