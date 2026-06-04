@@ -34,18 +34,21 @@ export class MessagesController {
   @ApiQuery({ name: 'userId', required: true, description: 'ID người dùng hiện tại để lọc tin nhắn đã xóa' })
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'skip', required: false })
+  @ApiQuery({ name: 'beforeMessageId', required: false })
   @ApiQuery({ name: 'pinned', required: false, description: 'true để chỉ lấy tin đã ghim' })
   findByConversation(
     @Param('conversationId') conversationId: string,
     @Query('userId') userId: string, // Thêm userId để truyền vào Service
-    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number,
+    @Query('limit', new DefaultValuePipe(30), ParseIntPipe) limit: number,
     @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
+    @Query('beforeMessageId') beforeMessageId?: string,
     @Query('pinned') pinned?: string,
   ) {
     // Truyền đúng 3 tham số: ID hội thoại, ID người dùng, và Object options
     return this.messagesService.findByConversation(conversationId, userId, {
       limit,
       skip,
+      beforeMessageId,
       pinnedOnly: pinned == 'true' || pinned == '1',
     });
   }
