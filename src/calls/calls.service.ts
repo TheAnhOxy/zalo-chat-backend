@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import * as crypto from 'crypto';
 import { Call, CallDocument, CallStatus } from './schemas/call.schema';
 import { CreateCallDto } from './dto/create-call.dto';
 import { UpdateCallDto } from './dto/update-call.dto';
@@ -16,6 +17,70 @@ export class CallsService {
     @InjectModel(Conversation.name) private conversationModel: Model<ConversationDocument>,
     private notificationsService: NotificationsService,
   ) {}
+
+  /**
+   * Sinh ICE config với TURN credentials có thời hạn (TTL-based).
+   *
+   * Chuẩn TURN REST API (RFC 8489 §9.2):
+   *   username  = "<unix_expiry>:<userId>"
+   *   credential = base64( HMAC-SHA1(TURN_SECRET, username) )
+   *
+   * Chỉ TURN_SECRET nằm trong .env backend — client không bao giờ thấy secret thật.
+   * Nếu chưa cấu hình TURN_SECRET, tự động fallback về OpenRelay (cho dev/demo).
+   */
+  generateIceConfig(userId: string): { iceServers: RTCIceServer[] } {
+    const turnSecret = process.env.TURN_SECRET ?? '';
+    const ttlSeconds = parseInt(process.env.TURN_TTL_SECONDS ?? '3600', 10);
+    const turnUrls = (process.env.TURN_URLS ?? '').split(',').map((u) => u.trim()).filter(Boolean);
+
+    // STUN servers luôn public, không cần bảo mật
+    const stunServers: RTCIceServer[] = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+    ];
+
+    // Nếu chưa cấu hình TURN riêng → fallback OpenRelay (chỉ dùng khi dev/demo)
+    if (!turnSecret || turnUrls.length === 0) {
+      return {
+        iceServers: [
+          ...stunServers,
+          {
+            urls: 'turn:openrelay.metered.ca:80',
+            username: 'openrelayproject',
+            credential: 'openrelayproject',
+          },
+          {
+            urls: 'turn:openrelay.metered.ca:443',
+            username: 'openrelayproject',
+            credential: 'openrelayproject',
+          },
+          {
+            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+            username: 'openrelayproject',
+            credential: 'openrelayproject',
+          },
+        ] as RTCIceServer[],
+      };
+    }
+
+    // Sinh credential TTL-based theo chuẩn TURN REST API
+    const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
+    const username = `${expiresAt}:${userId}`;
+    const credential = crypto
+      .createHmac('sha1', turnSecret)
+      .update(username)
+      .digest('base64');
+
+    const turnServers: RTCIceServer[] = turnUrls.map((url) => ({
+      urls: url,
+      username,
+      credential,
+    }));
+
+    return { iceServers: [...stunServers, ...turnServers] as RTCIceServer[] };
+  }
 
   async create(dto: CreateCallDto): Promise<Record<string, unknown>> {
     const doc = new this.callModel({
